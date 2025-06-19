@@ -1,0 +1,49 @@
+[package]
+name = "mpc-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+num-bigint.workspace = true
+ark-std.workspace = true
+ark-ff.workspace = true
+ark-bn254.workspace = true
+ark-serialize.workspace = true
+ark-poly.workspace = true
+ark-ec.workspace = true
+ark-linear-sumcheck.workspace = true
+rand.workspace = true
+itertools.workspace = true
+eyre.workspace = true
+rayon = { version = "1.10.0", optional = true }
+rand_chacha.workspace = true
+tracing.workspace = true
+num-traits = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+subtle = { workspace = true }
+thiserror = { workspace = true }
+bytesize = { workspace = true }
+nom = "7"
+sha3 = "0.10.8"
+fancy-garbling = { git = "https://github.com/GaloisInc/swanky", rev = "5ff648457218b74da9d8323b7ca47166ff5be4b3" }
+scuttlebutt = { git = "https://github.com/GaloisInc/swanky", rev = "5ff648457218b74da9d8323b7ca47166ff5be4b3" }
+parking_lot = "0.12.0"
+
+
+mpc-types.workspace = true
+mpc-net = { path = "../mpc-net" }
+snarks-core = { path = "../snarks-core" }
+
+[features]
+default = ["std", "parallel"]
+std = ["ark-ff/std", "ark-poly/std", "ark-std/std", "ark-serialize/std"]
+parallel = [
+    "std",
+    "ark-ff/parallel",
+    "ark-ec/parallel",
+    "ark-poly/parallel",
+    "ark-std/parallel",
+    "rayon",
+]
