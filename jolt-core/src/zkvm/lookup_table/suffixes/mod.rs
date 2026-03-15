@@ -17,7 +17,6 @@ use num_derive::FromPrimitive;
 use or::OrSuffix;
 use pow2::Pow2Suffix;
 use pow2_w::Pow2WSuffix;
-#[cfg(feature = "rv64")]
 use rev8w::Rev8W;
 use right_is_zero::RightOperandIsZeroSuffix;
 use right_shift::RightShiftSuffix;
@@ -61,7 +60,6 @@ pub mod or;
 pub mod overflow_bits_zero;
 pub mod pow2;
 pub mod pow2_w;
-#[cfg(feature = "rv64")]
 pub mod rev8w;
 pub mod right_is_zero;
 pub mod right_operand;
@@ -111,7 +109,6 @@ pub enum Suffixes {
     DivByZero,
     Pow2,
     Pow2W,
-    #[cfg(feature = "rv64")]
     Rev8W,
     RightShiftPadding,
     RightShift,
@@ -164,7 +161,6 @@ impl Suffixes {
             Suffixes::DivByZero => DivByZeroSuffix::suffix_mle(b),
             Suffixes::Pow2 => Pow2Suffix::<XLEN>::suffix_mle(b),
             Suffixes::Pow2W => Pow2WSuffix::<XLEN>::suffix_mle(b),
-            #[cfg(feature = "rv64")]
             Suffixes::Rev8W => Rev8W::suffix_mle(b),
             Suffixes::RightShiftPadding => RightShiftPaddingSuffix::<XLEN>::suffix_mle(b),
             Suffixes::RightShift => RightShiftSuffix::suffix_mle(b),

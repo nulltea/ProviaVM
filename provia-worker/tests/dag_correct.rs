@@ -1,3 +1,6 @@
+// Ensure jolt-inlines-sha2 #[ctor] registers inline sequence builders.
+use jolt_inlines_sha2 as _;
+
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ark_bn254::Fr;

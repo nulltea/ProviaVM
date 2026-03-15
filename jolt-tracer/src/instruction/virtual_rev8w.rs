@@ -22,7 +22,10 @@ impl VirtualRev8W {
                 let v = cpu.x[self.operands.rs1 as usize] as u64;
                 cpu.x[self.operands.rd as usize] = rev8w(v) as i64;
             }
-            Xlen::Bit32 => unimplemented!(),
+            Xlen::Bit32 => {
+                let v = cpu.x[self.operands.rs1 as usize] as u32;
+                cpu.x[self.operands.rd as usize] = v.swap_bytes() as i64;
+            }
         }
     }
 }

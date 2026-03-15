@@ -70,6 +70,7 @@ tikv-jemallocator = { version = "0.6", features = ["unprefixed_malloc_on_support
 [dev-dependencies]
 provia-worker = { path = ".", features = ["test-utils"] }
 provia-coordinator = { path = "../provia-coordinator" }
+jolt-inlines-sha2 = { path = "../jolt-inlines/sha2", features = ["host"] }
 rcgen = "0.13"
 
 [build-dependencies]

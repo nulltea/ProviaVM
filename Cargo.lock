@@ -52,7 +52,7 @@ version = "0.3.4"
 source = "git+https://github.com/facebookexperimental/allocative?rev=85b773d85d526d068ce94724ff7a7b81203fc95e#85b773d85d526d068ce94724ff7a7b81203fc95e"
 dependencies = [
  "allocative_derive",
- "ctor",
+ "ctor 0.1.26",
 ]
 
 [[package]]
@@ -834,6 +834,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
+dependencies = [
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "custom_derive"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1450,6 +1460,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "hex-literal"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1888,6 +1904,16 @@ dependencies = [
  "tracing-subscriber",
  "tracing-tracy",
  "tracy-client",
+]
+
+[[package]]
+name = "jolt-inlines-sha2"
+version = "0.1.0"
+dependencies = [
+ "ctor 0.2.9",
+ "hex-literal",
+ "jolt-tracer",
+ "tracing",
 ]
 
 [[package]]
@@ -2707,6 +2733,7 @@ dependencies = [
  "eyre",
  "itertools 0.12.1",
  "jolt-core",
+ "jolt-inlines-sha2",
  "jolt-tracer",
  "libc",
  "mpc-core",

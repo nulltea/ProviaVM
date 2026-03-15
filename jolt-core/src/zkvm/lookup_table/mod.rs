@@ -31,7 +31,6 @@ use valid_unsigned_remainder::ValidUnsignedRemainderTable;
 use virtual_change_divisor::VirtualChangeDivisorTable;
 #[cfg(feature = "rv64")]
 use virtual_change_divisor_w::VirtualChangeDivisorWTable;
-#[cfg(feature = "rv64")]
 use virtual_rev8w::VirtualRev8WTable;
 use virtual_rotr::VirtualRotrTable;
 #[cfg(feature = "rv64")]
@@ -105,7 +104,6 @@ pub mod valid_unsigned_remainder;
 pub mod virtual_change_divisor;
 #[cfg(feature = "rv64")]
 pub mod virtual_change_divisor_w;
-#[cfg(feature = "rv64")]
 pub mod virtual_rev8w;
 pub mod virtual_rotr;
 #[cfg(feature = "rv64")]
@@ -151,7 +149,6 @@ pub enum LookupTables<const XLEN: usize> {
     #[cfg(feature = "rv64")]
     Pow2W(Pow2WTable<XLEN>),
     ShiftRightBitmask(ShiftRightBitmaskTable<XLEN>),
-    #[cfg(feature = "rv64")]
     VirtualRev8W(VirtualRev8WTable<XLEN>),
     VirtualSRL(VirtualSRLTable<XLEN>),
     VirtualSRA(VirtualSRATable<XLEN>),
@@ -211,7 +208,6 @@ impl<const XLEN: usize> LookupTables<XLEN> {
             #[cfg(feature = "rv64")]
             LookupTables::Pow2W(table) => table.materialize(),
             LookupTables::ShiftRightBitmask(table) => table.materialize(),
-            #[cfg(feature = "rv64")]
             LookupTables::VirtualRev8W(table) => table.materialize(),
             LookupTables::VirtualSRL(table) => table.materialize(),
             LookupTables::VirtualSRA(table) => table.materialize(),
@@ -264,7 +260,6 @@ impl<const XLEN: usize> LookupTables<XLEN> {
             #[cfg(feature = "rv64")]
             LookupTables::Pow2W(table) => table.materialize_entry(index),
             LookupTables::ShiftRightBitmask(table) => table.materialize_entry(index),
-            #[cfg(feature = "rv64")]
             LookupTables::VirtualRev8W(table) => table.materialize_entry(index),
             LookupTables::VirtualSRL(table) => table.materialize_entry(index),
             LookupTables::VirtualSRA(table) => table.materialize_entry(index),
@@ -321,7 +316,6 @@ impl<const XLEN: usize> LookupTables<XLEN> {
             #[cfg(feature = "rv64")]
             LookupTables::Pow2W(table) => table.evaluate_mle(r),
             LookupTables::ShiftRightBitmask(table) => table.evaluate_mle(r),
-            #[cfg(feature = "rv64")]
             LookupTables::VirtualRev8W(table) => table.evaluate_mle(r),
             LookupTables::VirtualSRL(table) => table.evaluate_mle(r),
             LookupTables::VirtualSRA(table) => table.evaluate_mle(r),
@@ -374,7 +368,6 @@ impl<const XLEN: usize> LookupTables<XLEN> {
             #[cfg(feature = "rv64")]
             LookupTables::Pow2W(table) => table.suffixes(),
             LookupTables::ShiftRightBitmask(table) => table.suffixes(),
-            #[cfg(feature = "rv64")]
             LookupTables::VirtualRev8W(table) => table.suffixes(),
             LookupTables::VirtualSRL(table) => table.suffixes(),
             LookupTables::VirtualSRA(table) => table.suffixes(),
@@ -427,7 +420,6 @@ impl<const XLEN: usize> LookupTables<XLEN> {
             #[cfg(feature = "rv64")]
             LookupTables::Pow2W(table) => table.combine(prefixes, suffixes),
             LookupTables::ShiftRightBitmask(table) => table.combine(prefixes, suffixes),
-            #[cfg(feature = "rv64")]
             LookupTables::VirtualRev8W(table) => table.combine(prefixes, suffixes),
             LookupTables::VirtualSRL(table) => table.combine(prefixes, suffixes),
             LookupTables::VirtualSRA(table) => table.combine(prefixes, suffixes),

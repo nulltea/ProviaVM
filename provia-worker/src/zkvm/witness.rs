@@ -656,6 +656,7 @@ where
         ram_read_value,
         ram_write_value,
     );
+
     cw.update_stage3(crate::zkvm::dag::witness::Stage3Update {
         pc_sumcheck: Some((unexpanded_pc, flags_bits)),
         read_raf_tables_and_masks: Some((lookup_tables, is_interleaved_operands, right_operand_public_mask)),
