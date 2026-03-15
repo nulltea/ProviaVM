@@ -1,0 +1,284 @@
+//! RSA PKCS#1 v1.5 SHA-256 signature verification.
+
+use crate::{Limb, LIMBS_2048, LIMB_BYTES};
+use crate::modpow::modpow_65537;
+
+/// Verify an RSA PKCS#1 v1.5 signature with SHA-256.
+///
+/// - `n`: RSA modulus as limbs (2048-bit, little-endian)
+/// - `signature`: 2048-bit signature as bytes (big-endian, 256 bytes)
+/// - `message_hash`: SHA-256 hash of the message (32 bytes)
+///
+/// Returns `true` if the signature is valid.
+pub fn rsa_verify_pkcs1v15_sha256(
+    n: &[Limb; LIMBS_2048],
+    signature: &[u8; 256],
+    message_hash: &[u8; 32],
+) -> bool {
+    // Convert signature (big-endian bytes) to little-endian limbs
+    let sig_limbs = bytes_be_to_limbs(signature);
+
+    // Compute sig^65537 mod n
+    let result = modpow_65537(&sig_limbs, n);
+
+    // Convert result back to big-endian bytes
+    let result_bytes = limbs_to_bytes_be(&result);
+
+    // Check PKCS#1 v1.5 padding:
+    // Expected format: 0x00 0x01 [0xFF padding] 0x00 [DigestInfo] [hash]
+    // DigestInfo for SHA-256 (DER encoded):
+    // 30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20
+    const SHA256_DIGEST_INFO: [u8; 19] = [
+        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
+        0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
+        0x00, 0x04, 0x20,
+    ];
+
+    // result_bytes[0] must be 0x00
+    if result_bytes[0] != 0x00 { return false; }
+    // result_bytes[1] must be 0x01
+    if result_bytes[1] != 0x01 { return false; }
+
+    // Find the 0x00 separator after the 0xFF padding
+    let hash_with_info_len = 32 + SHA256_DIGEST_INFO.len(); // 51 bytes
+    let separator_idx = 256 - hash_with_info_len - 1; // index of 0x00 separator
+
+    // All bytes from index 2 to separator_idx-1 must be 0xFF
+    for i in 2..separator_idx {
+        if result_bytes[i] != 0xFF { return false; }
+    }
+
+    // Separator must be 0x00
+    if result_bytes[separator_idx] != 0x00 { return false; }
+
+    // Check DigestInfo
+    let di_start = separator_idx + 1;
+    if result_bytes[di_start..di_start + 19] != SHA256_DIGEST_INFO {
+        return false;
+    }
+
+    // Check hash
+    let hash_start = di_start + 19;
+    result_bytes[hash_start..hash_start + 32] == *message_hash
+}
+
+/// Convert big-endian bytes to little-endian limbs.
+fn bytes_be_to_limbs(bytes: &[u8; 256]) -> [Limb; LIMBS_2048] {
+    let mut limbs = [0 as Limb; LIMBS_2048];
+    for i in 0..LIMBS_2048 {
+        let mut buf = [0u8; LIMB_BYTES];
+        for j in 0..LIMB_BYTES {
+            // bytes is big-endian: bytes[0] is MSB
+            // limbs[0] is LSB limb, within each limb byte[0] is LSB
+            buf[j] = bytes[255 - i * LIMB_BYTES - j];
+        }
+        #[cfg(feature = "rv64")]
+        { limbs[i] = u64::from_le_bytes(buf); }
+        #[cfg(not(feature = "rv64"))]
+        { limbs[i] = u32::from_le_bytes(buf); }
+    }
+    limbs
+}
+
+/// Convert little-endian limbs to big-endian bytes.
+fn limbs_to_bytes_be(limbs: &[Limb; LIMBS_2048]) -> [u8; 256] {
+    let mut bytes = [0u8; 256];
+    for i in 0..LIMBS_2048 {
+        let le = limbs[i].to_le_bytes();
+        for j in 0..LIMB_BYTES {
+            bytes[255 - i * LIMB_BYTES - j] = le[j];
+        }
+    }
+    bytes
+}
+
+/// Parse a PKCS#1 DER-encoded RSA public key and extract the modulus as limbs.
+///
+/// PKCS#1 format: SEQUENCE { INTEGER(n), INTEGER(e) }
+/// Returns `None` if parsing fails or the modulus is not 2048-bit.
+pub fn parse_pkcs1_modulus(der: &[u8]) -> Option<[Limb; LIMBS_2048]> {
+    let mut pos = 0;
+
+    // SEQUENCE tag
+    if der.get(pos).copied()? != 0x30 { return None; }
+    pos += 1;
+    let (_seq_len, consumed) = parse_der_length(&der[pos..])?;
+    pos += consumed;
+
+    // First INTEGER: modulus n
+    if der.get(pos).copied()? != 0x02 { return None; }
+    pos += 1;
+    let (n_len, consumed) = parse_der_length(&der[pos..])?;
+    pos += consumed;
+
+    let n_bytes = der.get(pos..pos + n_len)?;
+    pos += n_len;
+
+    // Skip leading zero byte if present (sign padding)
+    let n_bytes = if !n_bytes.is_empty() && n_bytes[0] == 0x00 {
+        &n_bytes[1..]
+    } else {
+        n_bytes
+    };
+
+    // Must be exactly 256 bytes (2048 bits)
+    if n_bytes.len() != 256 { return None; }
+
+    // Second INTEGER: exponent e (verify it's 65537)
+    if der.get(pos).copied()? != 0x02 { return None; }
+    pos += 1;
+    let (e_len, consumed) = parse_der_length(&der[pos..])?;
+    pos += consumed;
+
+    let e_bytes = der.get(pos..pos + e_len)?;
+
+    // Parse exponent and verify it's 65537
+    let mut e: u32 = 0;
+    for &b in e_bytes {
+        e = e.checked_shl(8)?.checked_add(b as u32)?;
+    }
+    if e != 65537 { return None; }
+
+    // Convert big-endian modulus bytes to little-endian limbs
+    let n_be: &[u8; 256] = n_bytes.try_into().ok()?;
+    Some(bytes_be_to_limbs(n_be))
+}
+
+/// Parse a DER length field. Returns (length, bytes_consumed).
+fn parse_der_length(data: &[u8]) -> Option<(usize, usize)> {
+    let first = *data.first()?;
+    if first < 0x80 {
+        Some((first as usize, 1))
+    } else {
+        let num_bytes = (first & 0x7F) as usize;
+        if num_bytes == 0 || num_bytes > 4 { return None; }
+        let mut len: usize = 0;
+        for i in 0..num_bytes {
+            len = len.checked_shl(8)?.checked_add(*data.get(1 + i)? as usize)?;
+        }
+        Some((len, 1 + num_bytes))
+    }
+}
+
+#[cfg(all(test, feature = "host"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_pkcs1_modulus() {
+        // Build a minimal PKCS#1 DER for a 2048-bit key with e=65537
+        // SEQUENCE { INTEGER(n with leading 0x00), INTEGER(65537) }
+        let mut n_bytes = [0xABu8; 256];
+        n_bytes[0] = 0x80; // high bit set, so DER will have leading 0x00
+
+        // INTEGER for n: tag(1) + length(3: 82 01 01) + leading_zero(1) + data(256) = 261 bytes
+        // INTEGER for e: tag(1) + length(1: 03) + data(3: 01 00 01) = 5 bytes
+        // SEQUENCE length = 261 + 5 = 266
+
+        let mut der = Vec::new();
+        // SEQUENCE
+        der.push(0x30);
+        // SEQUENCE length: 266 = 0x010A
+        der.push(0x82);
+        der.push(0x01);
+        der.push(0x0A);
+        // INTEGER n
+        der.push(0x02);
+        // n length: 257 (256 + 1 leading zero) = 0x0101
+        der.push(0x82);
+        der.push(0x01);
+        der.push(0x01);
+        der.push(0x00); // leading zero (sign padding)
+        der.extend_from_slice(&n_bytes);
+        // INTEGER e = 65537 = 0x010001
+        der.push(0x02);
+        der.push(0x03);
+        der.push(0x01);
+        der.push(0x00);
+        der.push(0x01);
+
+        let result = parse_pkcs1_modulus(&der);
+        assert!(result.is_some(), "should parse valid PKCS#1 DER");
+
+        let limbs = result.unwrap();
+        // Convert back to bytes and verify
+        let mut reconstructed = [0u8; 256];
+        for i in 0..LIMBS_2048 {
+            let le = limbs[i].to_le_bytes();
+            for j in 0..LIMB_BYTES {
+                reconstructed[255 - i * LIMB_BYTES - j] = le[j];
+            }
+        }
+        assert_eq!(reconstructed, n_bytes);
+    }
+
+    #[test]
+    fn test_parse_pkcs1_rejects_wrong_exponent() {
+        let n_bytes = [0xABu8; 256];
+        let mut der = Vec::new();
+        der.push(0x30);
+        der.push(0x82); der.push(0x01); der.push(0x0A);
+        der.push(0x02);
+        der.push(0x82); der.push(0x01); der.push(0x01);
+        der.push(0x00);
+        der.extend_from_slice(&n_bytes);
+        // Wrong exponent: 3 instead of 65537
+        der.push(0x02);
+        der.push(0x01);
+        der.push(0x03);
+
+        assert!(parse_pkcs1_modulus(&der).is_none(), "should reject e != 65537");
+    }
+
+    #[test]
+    fn test_bytes_be_limbs_roundtrip() {
+        let mut bytes = [0u8; 256];
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+        let limbs = bytes_be_to_limbs(&bytes);
+        let back = limbs_to_bytes_be(&limbs);
+        assert_eq!(bytes, back);
+    }
+
+    #[test]
+    fn test_rsa_verify_e2e() {
+        use rsa::pkcs1::{EncodeRsaPublicKey, DecodeRsaPublicKey};
+        use rsa::pkcs1v15::SigningKey;
+        use rsa::signature::Signer;
+        use sha2::Sha256;
+
+        // Generate a 2048-bit RSA key pair
+        let mut rng = rand::thread_rng();
+        let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+        let public_key = rsa::RsaPublicKey::from(&private_key);
+
+        // Sign a message
+        let message = b"Hello, DKIM verification test!";
+        let mut hasher = <Sha256 as sha2::Digest>::new();
+        sha2::Digest::update(&mut hasher, message);
+        let hash: [u8; 32] = sha2::Digest::finalize(hasher).into();
+
+        let signing_key = SigningKey::<Sha256>::new(private_key);
+        let signature = signing_key.sign(message);
+        let sig_bytes: alloc::vec::Vec<u8> = rsa::signature::SignatureEncoding::to_vec(&signature);
+        assert_eq!(sig_bytes.len(), 256);
+
+        let mut sig_arr = [0u8; 256];
+        sig_arr.copy_from_slice(&sig_bytes);
+
+        // Parse modulus from DER
+        let der = public_key.to_pkcs1_der().unwrap();
+        let n_limbs = parse_pkcs1_modulus(der.as_bytes()).expect("failed to parse DER");
+
+        // Verify with our implementation
+        let result = rsa_verify_pkcs1v15_sha256(&n_limbs, &sig_arr, &hash);
+        assert!(result, "RSA signature should verify");
+
+        // Verify with wrong hash fails
+        let mut bad_hash = hash;
+        bad_hash[0] ^= 0xFF;
+        let bad_result = rsa_verify_pkcs1v15_sha256(&n_limbs, &sig_arr, &bad_hash);
+        assert!(!bad_result, "RSA signature should NOT verify with wrong hash");
+    }
+}
