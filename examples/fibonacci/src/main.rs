@@ -12,7 +12,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use jolt_sdk::*;
+use provia_jolt_sdk::*;
 
 #[derive(Deserialize)]
 struct DelegatorConfig {

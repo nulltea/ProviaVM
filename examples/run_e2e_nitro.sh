@@ -17,8 +17,8 @@ set -euo pipefail
 # Prerequisites:
 #   - Nitro-enabled EC2 instance with sudo nitro-cli and docker
 #   - Dory SRS file (dory_urs_*.urs) in repo root (generated on first worker run)
-#   - EIF pre-built: make -C co-jolt-coordinator/enclave build-eif
-#   - host_proxy pre-built: make -C co-jolt-coordinator/enclave build-host-proxy
+#   - EIF pre-built: make -C provia-coordinator/enclave build-eif
+#   - host_proxy pre-built: make -C provia-coordinator/enclave build-host-proxy
 #
 # Usage:
 #   DEBUG=1 bash examples/run_e2e_nitro.sh
@@ -48,7 +48,7 @@ TRACE_SUFFIX="${NUM_ITERS}_${RAYON_THREADS}T_${MPC_QUIC_CONN_LANES}L_${NETWORK_F
 
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$REPO_DIR/.artifacts"}
 TRACE_DIR=${TRACE_DIR:-"$REPO_DIR/.traces"}
-PREPROC_DIR=${PREPROC_DIR:-"$REPO_DIR/co-jolt2/.preprocessing"}
+PREPROC_DIR=${PREPROC_DIR:-"$REPO_DIR/provia-worker/.preprocessing"}
 
 # Ports — PORT_OFFSET shifts all port families for concurrent worktree runs
 PORT_OFFSET=${PORT_OFFSET:-0}
@@ -56,7 +56,7 @@ INTER_PARTY_BASE_PORT=${INTER_PARTY_BASE_PORT:-$((10000 + PORT_OFFSET))}
 USER_LISTEN_BASE_PORT=${USER_LISTEN_BASE_PORT:-$((30000 + PORT_OFFSET))}
 TRACY_BASE_PORT=${TRACY_BASE_PORT:-$((8086 + PORT_OFFSET))}
 
-ENCLAVE_DIR="$REPO_DIR/co-jolt-coordinator/enclave"
+ENCLAVE_DIR="$REPO_DIR/provia-coordinator/enclave"
 
 # ── Prereq checks ───────────────────────────────────────────────────────────
 
@@ -68,23 +68,23 @@ command -v nitro-cli >/dev/null || { echo "ERROR: nitro-cli not found"; exit 1; 
 
 if [ ! -f "$ENCLAVE_DIR/coordinator.eif" ]; then
   echo "ERROR: coordinator.eif not found."
-  echo "  Build it: make -C co-jolt-coordinator/enclave build-eif"
+  echo "  Build it: make -C provia-coordinator/enclave build-eif"
   exit 1
 fi
 if [ ! -f "$ENCLAVE_DIR/host_proxy" ]; then
   echo "ERROR: host_proxy not found."
-  echo "  Build it: make -C co-jolt-coordinator/enclave build-host-proxy"
+  echo "  Build it: make -C provia-coordinator/enclave build-host-proxy"
   exit 1
 fi
 
 mkdir -p "$ARTIFACT_DIR" "$TRACE_DIR"
 
-CO_JOLT2_FEATURES="test-utils"
+WORKER_FEATURES="test-utils"
 if [ "$TRACY_ALLOC" = "1" ]; then
-  CO_JOLT2_FEATURES="$CO_JOLT2_FEATURES,tracy-mem,jemalloc-stats"
+  WORKER_FEATURES="$WORKER_FEATURES,tracy-mem,jemalloc-stats"
 fi
 if [ -n "$EXTRA_FEATURES" ]; then
-  CO_JOLT2_FEATURES="$CO_JOLT2_FEATURES,$EXTRA_FEATURES"
+  WORKER_FEATURES="$WORKER_FEATURES,$EXTRA_FEATURES"
 fi
 
 setup_jemalloc_preset "$JEMALLOC_PRESET"
@@ -99,7 +99,7 @@ echo "Building host binaries..."
 cd "$REPO_DIR"
 
 cargo build --release \
-  -p co-jolt2 --bin worker --features "$CO_JOLT2_FEATURES"
+  -p provia-worker --bin worker --features "$WORKER_FEATURES"
 
 cargo build --release \
   -p mpc-net --bin gen_configs

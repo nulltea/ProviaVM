@@ -8,7 +8,7 @@ Describe the proving split between the coordinator and the three Rep3 workers.
 
 ### Motivation
 
-`co-jolt2` keeps Fiat-Shamir and final proof assembly in one place while pushing witness-dependent arithmetic into MPC workers. This keeps the vanilla Jolt proof shape mostly intact and narrows the MPC surface to witness generation, commitments, and sumcheck messages.
+`provia-worker` keeps Fiat-Shamir and final proof assembly in one place while pushing witness-dependent arithmetic into MPC workers. This keeps the vanilla Jolt proof shape mostly intact and narrows the MPC surface to witness generation, commitments, and sumcheck messages.
 
 ## Background
 
@@ -23,8 +23,8 @@ Describe the proving split between the coordinator and the three Rep3 workers.
 - `papers/co-zkvms.md`, sections on distributed proving and witness extension in MPC
 - Jolt book: `src/how/appendix/sumcheck.md`, `src/how/architecture/opening-proof.md`
 - Useful code anchors:
-  - `co-jolt2/src/zkvm/dag/worker.rs`
-  - `co-jolt-coordinator/src/zkvm/dag/coordinator.rs`
+  - `provia-worker/src/zkvm/dag/worker.rs`
+  - `provia-coordinator/src/zkvm/dag/coordinator.rs`
 
 ## Design
 

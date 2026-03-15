@@ -2143,7 +2143,7 @@ mod tests {
             std::array::from_fn(|pid| per.iter().map(|s| s[pid]).collect())
         };
 
-        let base_dir = std::env::temp_dir().join(format!("co_jolt2_preproc_{}", rng.next_u64()));
+        let base_dir = std::env::temp_dir().join(format!("provia_worker_preproc_{}", rng.next_u64()));
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2207,7 +2207,7 @@ mod tests {
         };
 
         let base_dir =
-            std::env::temp_dir().join(format!("co_jolt2_preproc_precache_{}_{}", cached_items, rng.next_u64()));
+            std::env::temp_dir().join(format!("provia_worker_preproc_precache_{}_{}", cached_items, rng.next_u64()));
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2256,7 +2256,7 @@ mod tests {
     fn preprocess_pool_precache_exact_match_reused_without_rebuild() {
         const NUM_U64: usize = 8;
 
-        let base_dir = temp_test_dir("co_jolt2_preproc_precache_exact");
+        let base_dir = temp_test_dir("provia_worker_preproc_precache_exact");
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2300,7 +2300,7 @@ mod tests {
     fn preprocess_pool_precache_superset_reused_for_smaller_request() {
         const NUM_U64: usize = 8;
 
-        let base_dir = temp_test_dir("co_jolt2_preproc_precache_superset");
+        let base_dir = temp_test_dir("provia_worker_preproc_precache_superset");
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2341,7 +2341,7 @@ mod tests {
     fn preprocess_pool_precache_stale_sidecar_rejected_on_load() {
         const NUM_U64: usize = 8;
 
-        let base_dir = temp_test_dir("co_jolt2_preproc_precache_stale");
+        let base_dir = temp_test_dir("provia_worker_preproc_precache_stale");
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2383,7 +2383,7 @@ mod tests {
     fn preprocess_pool_precache_invalidated_on_extension() {
         const NUM_U64: usize = 8;
 
-        let base_dir = temp_test_dir("co_jolt2_preproc_precache_extend");
+        let base_dir = temp_test_dir("provia_worker_preproc_precache_extend");
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2423,7 +2423,7 @@ mod tests {
     fn preprocess_pool_precache_oversized_single_width_errors() {
         const NUM_U64: usize = 8;
 
-        let base_dir = temp_test_dir("co_jolt2_preproc_precache_oversized_single");
+        let base_dir = temp_test_dir("provia_worker_preproc_precache_oversized_single");
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 
@@ -2463,7 +2463,7 @@ mod tests {
     fn preprocess_pool_precache_pool_level_failure_is_atomic() {
         const NUM_U64: usize = 8;
 
-        let base_dir = temp_test_dir("co_jolt2_preproc_precache_pool_atomic");
+        let base_dir = temp_test_dir("provia_worker_preproc_precache_pool_atomic");
         let base_dir_for_workers = base_dir.clone();
         std::fs::create_dir_all(&base_dir).expect("failed to create temp dir");
 

@@ -24,9 +24,9 @@ Spartan is where the witness becomes algebraic constraints. The design problem i
 - `papers/co-zkvms.md`, R1CS and distributed proving sections
 - Jolt book: `src/how/appendix/sumcheck.md`
 - Useful code anchors:
-  - `co-jolt2/src/poly/spartan_interleaved_poly.rs`
-  - `co-jolt2/src/zkvm/r1cs/inputs.rs`
-  - `co-jolt2/src/zkvm/spartan/inner.rs`
+  - `provia-worker/src/poly/spartan_interleaved_poly.rs`
+  - `provia-worker/src/zkvm/r1cs/inputs.rs`
+  - `provia-worker/src/zkvm/spartan/inner.rs`
 
 ## Design
 

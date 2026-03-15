@@ -22,7 +22,7 @@ The commitment path wants fast MSM on public bases with secret shared coefficien
 
 - `papers/co-zkvms.md`, commitment/distributed proving sections
 - Useful code anchor:
-  - `co-jolt2/src/poly/commitment/dory.rs`
+  - `provia-worker/src/poly/commitment/dory.rs`
 
 ## Design
 

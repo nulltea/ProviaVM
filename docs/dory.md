@@ -1,6 +1,6 @@
 # Rep3 Dory ZK Notes
 
-This note only covers what `co-jolt2` adds on top of upstream vanilla Dory.
+This note only covers what `provia-worker` adds on top of upstream vanilla Dory.
 
 Upstream already gives us:
 - verifier-ZK Dory commitments and openings behind `zk`

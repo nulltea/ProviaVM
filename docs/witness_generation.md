@@ -4,7 +4,7 @@
 
 ### Purpose
 
-Describe how `co-jolt2` turns a vanilla Jolt execution trace into shared witness data for MPC proving.
+Describe how `provia-worker` turns a vanilla Jolt execution trace into shared witness data for MPC proving.
 
 ### Motivation
 
@@ -24,9 +24,9 @@ Witness generation is the main privacy boundary in this system. It decides which
 - `papers/B2A.pdf`, `papers/maestro.pdf`
 - Jolt book: `src/how/twist-shout.md`, `src/how/architecture/ram.md`
 - Useful code anchors:
-  - `co-jolt2/src/host/program.rs`
-  - `co-jolt2/src/host/jolt_device.rs`
-  - `co-jolt2/src/zkvm/witness.rs`
+  - `provia-worker/src/host/program.rs`
+  - `provia-worker/src/host/jolt_device.rs`
+  - `provia-worker/src/zkvm/witness.rs`
 
 ## Design
 
@@ -71,7 +71,7 @@ Shared by design:
 
 - Hybrid tracing:
   - vanilla Jolt produces the execution trace
-  - `co-jolt2` shares only the witness-sensitive parts
+  - `provia-worker` shares only the witness-sensitive parts
 - Two-domain witness path:
   - ring/binary shares for lookup-friendly tracing
   - field shares for proof systems and commitments

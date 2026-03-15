@@ -23,8 +23,8 @@ The Jolt memory design already separates public execution structure from witness
 - `papers/co-zkvms.md`, RW memory and distributed proving sections
 - Jolt book: `src/how/architecture/ram.md`
 - Useful code anchors:
-  - `co-jolt2/src/zkvm/ram/mod.rs`
-  - `co-jolt2/src/zkvm/registers/`
+  - `provia-worker/src/zkvm/ram/mod.rs`
+  - `provia-worker/src/zkvm/registers/`
 
 ## Design
 

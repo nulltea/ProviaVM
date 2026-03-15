@@ -1,6 +1,7 @@
-# co-jolt2
+# provia-worker
 
-Read first: `co-jolt2/PROJECT.md`
+## Context
+- docs: `docs/*.md`
 
 ## Hard rule
 Run all Rust commands with:
@@ -8,9 +9,9 @@ Run all Rust commands with:
 
 ## Quick checks
 - Integration test:
-  - `RUSTFLAGS="-A warnings" cargo test -p co-jolt2 --test dag_correct --features test-utils -- --nocapture`
+  - `RUSTFLAGS="-A warnings" cargo test -p provia-worker --test dag_correct --features test-utils -- --nocapture`
 - Bench:
-  - `cd co-jolt2 && REUSE_PREPROC=1 NUM_ITERS=1 bash examples/run_rep3_jolt.sh`
+  - `cd provia-worker && REUSE_PREPROC=1 NUM_ITERS=1 bash examples/run_rep3_jolt.sh`
 
 ## Code organization order (within each file)
 1. Core logic types

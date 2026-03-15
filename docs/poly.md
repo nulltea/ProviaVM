@@ -25,9 +25,9 @@ Different parts of the prover want different things: dense evaluation, sparse ac
 - `papers/co-zkvms.md`, witness extension and lookup sections
 - Jolt book: `src/how/twist-shout.md`, `src/how/optimizations/batched-openings.md`
 - Useful code anchors:
-  - `co-jolt2/src/poly/multilinear_polynomial.rs`
-  - `co-jolt2/src/poly/one_hot_polynomial.rs`
-  - `co-jolt2/src/poly/rlc_polynomial.rs`
+  - `provia-worker/src/poly/multilinear_polynomial.rs`
+  - `provia-worker/src/poly/one_hot_polynomial.rs`
+  - `provia-worker/src/poly/rlc_polynomial.rs`
 
 ## Design
 

@@ -23,9 +23,9 @@ Instruction lookups are one of the main places where Jolt trades full obliviousn
 - `papers/co-zkvms.md`, instruction lookup and witness-extension sections
 - Jolt book: `src/how/twist-shout.md`
 - Useful code anchors:
-  - `co-jolt2/src/poly/one_hot_polynomial.rs`
-  - `co-jolt2/src/poly/ra_poly.rs`
-  - `co-jolt2/src/zkvm/suffixes/`
+  - `provia-worker/src/poly/one_hot_polynomial.rs`
+  - `provia-worker/src/poly/ra_poly.rs`
+  - `provia-worker/src/zkvm/suffixes/`
 
 ## Design
 
