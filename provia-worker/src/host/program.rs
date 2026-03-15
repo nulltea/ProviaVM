@@ -16,11 +16,7 @@ pub type Rep3ShareBundle = (Vec<Rep3Cycle>, Rep3Memory, Rep3ProgramIOInput);
 
 /// Execute `program`, generate 3-way Rep3 secret shares of the trace, and return
 /// all public metadata needed by the client to build `WorkerPayload`.
-///
-/// Returns `(bytecode, memory_init, program_io, shares)`:
-/// - `bytecode` and `memory_init`: public data sent to workers for preprocessing
-/// - `program_io`: vanilla JoltDevice (needed for verification and output decoding)
-/// - `shares`: 3 Rep3ShareBundles (one per party), traces already padded to next power of 2
+/// Traces are padded to the next power of 2.
 #[tracing::instrument(skip_all, name = "Program::generate_trace_shares")]
 pub fn generate_trace_shares<R: RngCore + CryptoRng>(
     program: &mut Program,
@@ -56,11 +52,6 @@ pub fn generate_trace_shares<R: RngCore + CryptoRng>(
 }
 
 /// Share a vanilla trace into 3 Rep3 traces with binary-shared operands.
-///
-/// For each cycle:
-/// 1. Extract operand values from the vanilla Cycle
-/// 2. Generate binary shares for each value
-/// 3. Build 3 Rep3Cycles via `from_cycle_shared`
 pub fn share_trace<R: RngCore>(trace: Vec<tracer::instruction::Cycle>, rng: &mut R) -> [Vec<Rep3Cycle>; 3] {
     use rand::SeedableRng;
     use rand_chacha::ChaCha12Rng;
@@ -107,9 +98,6 @@ fn public_operand_indices(cycle: &tracer::instruction::Cycle) -> &'static [usize
 }
 
 /// Share a single vanilla Cycle into 3 Rep3Cycles with binary-shared operands.
-///
-/// Extracts operand values directly from the vanilla Cycle, generates binary
-/// shares, and builds 3 Rep3Cycles via `from_cycle_shared`.
 /// Operands at indices returned by `public_operand_indices` are kept public.
 fn share_cycle(
     cycle: &tracer::instruction::Cycle,

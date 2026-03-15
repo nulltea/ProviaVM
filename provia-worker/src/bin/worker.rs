@@ -145,7 +145,6 @@ fn prove_loop(
     user_listener: &TlsWorkerListener,
 ) -> eyre::Result<()> {
     loop {
-        // 1. Accept user connection, receive payload
         info!("waiting for user connection...");
         let mut user_conn = user_listener.accept()?;
         info!(peer = %user_conn.peer_addr(), "accepted user connection");
@@ -173,10 +172,8 @@ fn prove_loop(
             });
         }
 
-        // 2. Sync with coordinator (barrier: "we have shares, ready to prove")
         io_ctx.sync_with_coordinator()?;
 
-        // 3. Build prover preprocessing (needed for ram_k computation and proving)
         let preprocessing: JoltProverPreprocessing<F, PCS> = <JoltArch as Rep3JoltWorker<F, PCS, _>>::preprocess(
             bytecode.clone(),
             program_io_share.memory_layout.clone(),
@@ -188,7 +185,6 @@ fn prove_loop(
         let ram_k = compute_ram_k(&trace, &preprocessing.shared);
         info!(padded_len, ram_k, trace_len = trace.len(), "received payload from user");
 
-        // 4. Send ProofRequest (public data) to coordinator
         let proof_request = ProofRequest {
             bytecode,
             memory_init,
@@ -211,7 +207,6 @@ fn prove_loop(
         let ram_d = compute_d_parameter(ram_k);
         let _poly_guard = AllCommittedPolynomials::initialize(ram_d, bytecode_d);
 
-        // 5. Preprocessing (edaBits + daBits + ring-MSM material)
         let party_id = io_ctx.party_id();
         let _span = info_span!("preprocessing", party_id = io_ctx.party_idx()).entered();
 
@@ -491,7 +486,6 @@ fn prove_loop(
         }
         drop(_span);
 
-        // 6. Prove
         <JoltArch as Rep3JoltWorker<F, PCS, _>>::prove(
             &preprocessing,
             trace,
@@ -502,7 +496,6 @@ fn prove_loop(
             &mut preproc,
         )?;
 
-        // 7. [worker 0] Receive proof from coordinator, relay to user
         if my_id == 0 {
             let proof_bytes: Vec<u8> = io_ctx.network().receive_request()?;
             info!(proof_len = proof_bytes.len(), "received proof from coordinator");

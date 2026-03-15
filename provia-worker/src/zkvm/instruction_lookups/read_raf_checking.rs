@@ -674,9 +674,8 @@ impl<F: JoltField> ReadRafProverState<F> {
 
         let suffix_len = (PHASES - 1 - phase) * LOG_M;
 
-        // -- Step 1: Per-table suffix evaluation --
-        // Dispatch to smallest ring type, build SuffixBitsBatch per table,
-        // evaluate suffixes per table, fulfill all B2A conversions in one batch.
+        // Per-table suffix evaluation: dispatch to smallest ring type, build
+        // SuffixBitsBatch per table, evaluate, fulfill all B2A conversions.
         let (eval_segments, all_field): (Vec<EvalSegment>, Vec<Rep3Value<F>>) = if suffix_len > 0 {
             match suffix_len {
                 65..=128 => table_suffixes_mle::<u128, F, N>(
@@ -721,10 +720,8 @@ impl<F: JoltField> ReadRafProverState<F> {
             (Vec::new(), Vec::new())
         };
 
-        // -- Step 2: Build+unmask public/Rep3 histograms in parallel (no materialization) --
-        // Returns:
-        // - already-unmasked additive polys for public and rep3 histograms
-        // - additive histograms that still require communication (reshare)
+        // Build+unmask public/Rep3 histograms (no materialization).
+        // Returns unmasked additive polys and entries still needing reshare.
         let (pub_polys, rep3_polys, hist_entries_to_reshare, zero_polys) = build_suffix_polys_and_additive_hists(
             &eval_segments,
             &all_field,
@@ -742,7 +739,7 @@ impl<F: JoltField> ReadRafProverState<F> {
             self.suffix_polys[table_idx][suffix_idx] = Some(poly);
         }
 
-        // -- Step 3: Chunked reshare+unmask additive histograms --
+        // Chunked reshare+unmask additive histograms
         let chunk_hists = std::env::var("RESHARE_HISTS_CHUNK").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(8);
 
         let reshared_polys = reshare_and_unmask_additive_hists_chunked(

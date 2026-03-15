@@ -315,11 +315,8 @@ unsafe impl Sync for SharedRep3WitnessData {}
 
 /// Compute the lookup output for each cycle in the trace.
 ///
-/// Mirrors v1's `compute_lookup_outputs_rep3`:
-/// 1. Initialize output futures as `Ready(zero_share)`
-/// 2. Group `(cycle, &mut future)` pairs by instruction discriminant (skip NoOp/INLINE)
-/// 3. Process each group via `par_chunks` → `to_lookup_output_batched`
-/// 4. `fulfill_batched` all futures into `Rep3PrimeFieldShare<F>`
+/// Groups cycles by instruction discriminant, evaluates each group via
+/// `to_lookup_output_batched`, and fulfills all B2A futures in one pass.
 #[tracing::instrument(skip_all, name = "compute_lookup_outputs")]
 pub fn compute_lookup_outputs<F, N>(
     trace: &[Rep3Cycle],

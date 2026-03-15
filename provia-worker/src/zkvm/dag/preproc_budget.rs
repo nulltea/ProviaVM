@@ -72,19 +72,19 @@ impl std::fmt::Debug for PreprocessingBudget {
 
 /// Compute the EdaBit budget needed for the padded trace.
 ///
-/// Pass the **padded** trace length (`trace.len()`), which is always a power of 2.
+/// Pass the padded trace length (`trace.len()`), which is always a power of 2.
 /// This must be the padded length because witness-gen consumers (rd_inc, ram_inc)
 /// operate on the full padded trace, not just non-NoOp cycles.
 ///
 /// Three consumer groups:
-/// 1. **Suffix eval** (per-table, per-phase): each non-NoOp cycle belongs to
-///    exactly one table.  Worst case per ring bucket:
-///    `max_over_tables(B2A_suffix_count_in_bucket) × n`.
-/// 2. **Operand Q** (per-phase): `n` edaBits of type T (identity) + `2n` of
-///    T::Half (left + right).  Overestimates because identity and interleaved
-///    cycles are disjoint, but the split is unknown at budget time.
-/// 3. **Witness gen**: `5n` XlenInt (sparse operand cast, worst case) +
-///    `4n` XlenInt (rd_inc + ram_inc, each `2n`).
+/// - Suffix eval (per-table, per-phase): each non-NoOp cycle belongs to
+///   exactly one table.  Worst case per ring bucket:
+///   `max_over_tables(B2A_suffix_count_in_bucket) × n`.
+/// - Operand Q (per-phase): `n` edaBits of type T (identity) + `2n` of
+///   T::Half (left + right).  Overestimates because identity and interleaved
+///   cycles are disjoint, but the split is unknown at budget time.
+/// - Witness gen: `5n` XlenInt (sparse operand cast, worst case) +
+///   `4n` XlenInt (rd_inc + ram_inc, each `2n`).
 ///
 /// Phase ring types: suffix_len = (PHASES - 1 - phase) * LOG_M
 ///

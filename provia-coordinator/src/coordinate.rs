@@ -18,13 +18,8 @@ type F = Fr;
 type PCS = DoryCommitmentScheme;
 type FS = Blake2bTranscript;
 
-/// Drive one proof iteration.
-///
-/// 1. Sync with workers (barrier)
-/// 2. Receive `ProofRequest` (public data) from workers
-/// 3. Compute preprocessing
-/// 4. Drive MPC proof
-/// 5. Send serialized proof to worker 0
+/// Drive one proof iteration: sync with workers, receive a `ProofRequest`,
+/// compute preprocessing, drive the MPC proof, and send the result to worker 0.
 pub fn coordinate_once<N: Rep3NetworkCoordinator>(
     network: &mut N,
     on_request: impl FnOnce(&ProofRequest),

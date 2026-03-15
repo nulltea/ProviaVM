@@ -664,11 +664,9 @@ impl Rep3JoltDag {
 
     /// Produce the untrusted advice opening proof.
     ///
-    /// 1. Compute the advice opening point from the stage2 accumulator.
-    /// 2. Broadcast the point to workers.
-    /// 3. Receive additive evaluation shares from workers and sum.
-    /// 4. Initialize UntrustedAdvice DoryContext and coordinate the PCS prove.
-    /// 5. Store the opening and proof in the accumulator/proofs.
+    /// Computes the opening point from the stage2 accumulator, broadcasts it to
+    /// workers, collects their additive evaluation shares, and coordinates the
+    /// PCS prove under a dedicated UntrustedAdvice DoryContext.
     fn prove_untrusted_advice_opening<F, ProofTranscript, PCS, N>(
         state: &mut StateManager<'_, F, ProofTranscript, PCS>,
         network: &mut N,

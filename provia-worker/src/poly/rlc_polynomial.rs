@@ -35,7 +35,7 @@ impl<F: JoltField> Rep3RLCPolynomial<F> {
         let mut result = Self {
             dense_rlc: vec![Rep3PrimeFieldShare::zero_share(); DoryGlobals::get_T()],
             one_hot_rlc: vec![],
-            party_id, // TODO:
+            party_id,
         };
 
         let dense_indices: Vec<usize> = polynomials
