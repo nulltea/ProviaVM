@@ -1,0 +1,193 @@
+use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
+use jolt_core::poly::multilinear_polynomial::BindingOrder;
+use jolt_core::poly::opening_proof::{OpeningPoint, SumcheckId, BIG_ENDIAN};
+use jolt_core::poly::split_eq_poly::GruenSplitEqPolynomial;
+use jolt_core::utils::math::Math;
+use jolt_core::zkvm::witness::CommittedPolynomial;
+use jolt_core::zkvm::witness::VirtualPolynomial;
+use mpc_core::protocols::additive::AdditiveShare;
+use mpc_core::protocols::rep3::PartyID;
+use mpc_core::protocols::rep3_ring::edabits::PreprocessingPool;
+use rayon::prelude::*;
+
+use crate::poly::dense_mlpoly::Rep3DensePolynomial;
+use crate::poly::opening_proof::Rep3OpeningAccumulatorWorker;
+use crate::utils::types::Rep3Value;
+use jolt_core::field::JoltField;
+use mpc_core::protocols::rep3::network::{IoContextPool, Rep3NetworkWorker};
+
+use crate::zkvm::dag::stage::Rep3SumcheckInstanceWorker;
+use crate::zkvm::dag::state_manager::StateManagerWorker;
+use crate::zkvm::instruction_lookups::booleanity::{extend_degree_3_evals, gruen_evals_deg_3};
+
+const DEGREE: usize = 3;
+
+// ---------------------------------------------------------------------------
+// Worker
+// ---------------------------------------------------------------------------
+
+pub struct Rep3ProductVirtualizationSumcheckWorker<F: JoltField> {
+    party_id: PartyID,
+    input_claim: F,
+    log_T: usize,
+    left_input_poly: Rep3DensePolynomial<F>,
+    right_input_poly: Rep3DensePolynomial<F>,
+    eq_r_cycle: GruenSplitEqPolynomial<F>,
+}
+
+impl<F: JoltField> Rep3ProductVirtualizationSumcheckWorker<F> {
+    pub fn new<PCS: CommitmentScheme<Field = F>>(sm: &mut StateManagerWorker<'_, F, PCS>, input_claim: F) -> Self {
+        let party_id = sm.party_id;
+
+        let (r_cycle_point, _) =
+            sm.accumulator.get_virtual_polynomial_opening(VirtualPolynomial::Product, SumcheckId::SpartanOuter);
+        let log_T = r_cycle_point.r.len();
+
+        let inputs = sm.prover_state.cycle_witness.take_product_inputs();
+
+        Self {
+            party_id,
+            input_claim,
+            log_T,
+            left_input_poly: Rep3DensePolynomial::new(inputs.left),
+            right_input_poly: Rep3DensePolynomial::new(inputs.right),
+            eq_r_cycle: GruenSplitEqPolynomial::new(&r_cycle_point.r, BindingOrder::LowToHigh),
+        }
+    }
+}
+
+impl<F: JoltField, N: Rep3NetworkWorker> Rep3SumcheckInstanceWorker<F, N>
+    for Rep3ProductVirtualizationSumcheckWorker<F>
+{
+    fn degree(&self) -> usize {
+        DEGREE
+    }
+
+    fn num_rounds(&self) -> usize {
+        self.log_T
+    }
+
+    fn input_claim(&self) -> Rep3Value<F> {
+        Rep3Value::Public(self.input_claim)
+    }
+
+    #[tracing::instrument(skip_all, level = "trace", name = "ProductVirtSumcheck::compute_message")]
+    fn compute_prover_message_share(
+        &mut self,
+        _round: usize,
+        previous_claim: AdditiveShare<F>,
+        max_degree: usize,
+        _io_ctx: &mut IoContextPool<N>,
+    ) -> Vec<AdditiveShare<F>> {
+        let eq = &self.eq_r_cycle;
+
+        let quadratic_coeffs: [AdditiveShare<F>; DEGREE - 1] = if eq.E_in_current_len() == 1 {
+            (0..eq.len() / 2)
+                .into_par_iter()
+                .map(|j| {
+                    let eq_eval = eq.E_out_current()[j];
+
+                    let left_0 = self.left_input_poly.get_bound_coeff(2 * j);
+                    let left_1 = self.left_input_poly.get_bound_coeff(2 * j + 1);
+                    let right_0 = self.right_input_poly.get_bound_coeff(2 * j);
+                    let right_1 = self.right_input_poly.get_bound_coeff(2 * j + 1);
+
+                    let t0 = (left_0 * right_0) * eq_eval;
+                    let t_inf = ((left_1 - left_0) * (right_1 - right_0)) * eq_eval;
+                    [t0, t_inf]
+                })
+                .reduce(
+                    || [AdditiveShare::zero(), AdditiveShare::zero()],
+                    |running, new| [running[0] + new[0], running[1] + new[1]],
+                )
+        } else {
+            let num_x_in_bits = eq.E_in_current_len().log_2();
+            let x_bitmask = (1 << num_x_in_bits) - 1;
+            let chunk_size = 1 << num_x_in_bits;
+            debug_assert_eq!(x_bitmask, chunk_size - 1);
+
+            let num_chunks = (eq.len() / 2).div_ceil(chunk_size);
+
+            (0..num_chunks)
+                .into_par_iter()
+                .map(|x_out| {
+                    let E_out_eval = eq.E_out_current()[x_out];
+
+                    let mut t0 = AdditiveShare::<F>::zero();
+                    let mut t_inf = AdditiveShare::<F>::zero();
+
+                    let base = x_out * chunk_size;
+                    let end = core::cmp::min(base + chunk_size, eq.len() / 2);
+
+                    for j in base..end {
+                        let x_in = j & x_bitmask;
+                        let E_in_eval = eq.E_in_current()[x_in];
+
+                        let left_0 = self.left_input_poly.get_bound_coeff(2 * j);
+                        let left_1 = self.left_input_poly.get_bound_coeff(2 * j + 1);
+                        let right_0 = self.right_input_poly.get_bound_coeff(2 * j);
+                        let right_1 = self.right_input_poly.get_bound_coeff(2 * j + 1);
+
+                        t0 += (left_0 * right_0) * E_in_eval;
+                        t_inf += ((left_1 - left_0) * (right_1 - right_0)) * E_in_eval;
+                    }
+
+                    [t0 * E_out_eval, t_inf * E_out_eval]
+                })
+                .reduce(
+                    || [AdditiveShare::zero(), AdditiveShare::zero()],
+                    |running, new| [running[0] + new[0], running[1] + new[1]],
+                )
+        };
+
+        let base = gruen_evals_deg_3(
+            eq,
+            Rep3Value::Additive(quadratic_coeffs[0]),
+            Rep3Value::Additive(quadratic_coeffs[1]),
+            previous_claim,
+            self.party_id,
+        );
+
+        extend_degree_3_evals(previous_claim, &base, max_degree)
+    }
+
+    #[tracing::instrument(skip_all, level = "trace", name = "ProductVirtSumcheck::bind")]
+    fn bind(
+        &mut self,
+        r_j: F::Challenge,
+        _round: usize,
+        _io_ctx: &mut IoContextPool<N>,
+        _preproc: &mut PreprocessingPool<F>,
+    ) {
+        self.eq_r_cycle.bind(r_j);
+        let r: F = r_j.into();
+        rayon::join(
+            || self.left_input_poly.bind(r, BindingOrder::LowToHigh),
+            || self.right_input_poly.bind(r, BindingOrder::LowToHigh),
+        );
+    }
+
+    fn normalize_opening_point(&self, opening_point: &[F::Challenge]) -> OpeningPoint<BIG_ENDIAN, F> {
+        OpeningPoint::new(opening_point.iter().rev().copied().collect())
+    }
+
+    fn cache_openings_worker(
+        &mut self,
+        accumulator: &mut Rep3OpeningAccumulatorWorker<F>,
+        opening_point: OpeningPoint<BIG_ENDIAN, F>,
+    ) -> Vec<mpc_core::protocols::rep3::Rep3PrimeFieldShare<F>> {
+        let left_eval = self.left_input_poly.final_sumcheck_claim();
+        let right_eval = self.right_input_poly.final_sumcheck_claim();
+
+        accumulator.append_dense(
+            vec![CommittedPolynomial::LeftInstructionInput, CommittedPolynomial::RightInstructionInput],
+            SumcheckId::ProductVirtualization,
+            opening_point.r,
+            &[left_eval, right_eval],
+        );
+
+        vec![left_eval, right_eval]
+    }
+}
+
+// ---------------------------------------------------------------------------

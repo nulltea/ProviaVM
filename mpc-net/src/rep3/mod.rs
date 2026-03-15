@@ -1,12 +1,15 @@
 // mod network;
 
-use mpc_types::protocols::rep3::id::PartyID;
+use crate::id::PartyID;
 
 #[cfg(feature = "mpi")]
 pub mod mpi;
 
 #[cfg(feature = "quic")]
 pub mod quic;
+
+#[cfg(feature = "tls")]
+pub mod tls;
 
 pub type WorkerID = usize;
 
@@ -40,12 +43,7 @@ impl PartyWorkerID {
 
 impl std::fmt::Display for PartyWorkerID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "party: {}, worker: {}",
-            self.party_id(),
-            self.worker_idx()
-        )
+        write!(f, "party: {}, worker: {}", self.party_id(), self.worker_idx())
     }
 }
 
@@ -58,28 +56,10 @@ fn test_global_worker_idn() {
     assert_eq!(PartyWorkerID::new(1, 1).global_worker_id(), 4);
     assert_eq!(PartyWorkerID::new(2, 1).global_worker_id(), 5);
 
-    assert_eq!(
-        PartyWorkerID::from_global_worker_id(0),
-        PartyWorkerID::new(0, 0)
-    );
-    assert_eq!(
-        PartyWorkerID::from_global_worker_id(1),
-        PartyWorkerID::new(1, 0)
-    );
-    assert_eq!(
-        PartyWorkerID::from_global_worker_id(2),
-        PartyWorkerID::new(2, 0)
-    );
-    assert_eq!(
-        PartyWorkerID::from_global_worker_id(3),
-        PartyWorkerID::new(0, 1)
-    );
-    assert_eq!(
-        PartyWorkerID::from_global_worker_id(4),
-        PartyWorkerID::new(1, 1)
-    );
-    assert_eq!(
-        PartyWorkerID::from_global_worker_id(5),
-        PartyWorkerID::new(2, 1)
-    );
+    assert_eq!(PartyWorkerID::from_global_worker_id(0), PartyWorkerID::new(0, 0));
+    assert_eq!(PartyWorkerID::from_global_worker_id(1), PartyWorkerID::new(1, 0));
+    assert_eq!(PartyWorkerID::from_global_worker_id(2), PartyWorkerID::new(2, 0));
+    assert_eq!(PartyWorkerID::from_global_worker_id(3), PartyWorkerID::new(0, 1));
+    assert_eq!(PartyWorkerID::from_global_worker_id(4), PartyWorkerID::new(1, 1));
+    assert_eq!(PartyWorkerID::from_global_worker_id(5), PartyWorkerID::new(2, 1));
 }

@@ -74,7 +74,11 @@ impl FromStr for Address {
 impl ToSocketAddrs for Address {
     type Iter = std::vec::IntoIter<SocketAddr>;
     fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
-        format!("{}:{}", self.hostname, self.port).to_socket_addrs()
+        let mut addrs: Vec<SocketAddr> = format!("{}:{}", self.hostname, self.port).to_socket_addrs()?.collect();
+        // Sort IPv4 addresses first so that connections to servers bound on
+        // 0.0.0.0 succeed even when the OS resolves "localhost" to ::1 first.
+        addrs.sort_by_key(|a| matches!(a, SocketAddr::V6(_)));
+        Ok(addrs.into_iter())
     }
 }
 
@@ -105,13 +109,30 @@ pub struct NetworkWorkerConfig {
     pub cert_path: PathBuf,
 }
 
+/// Protocol used for the worker↔coordinator connection.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum CoordinatorProtocol {
+    /// QUIC transport (default). Requires `cert_path` for pre-shared coordinator cert.
+    #[default]
+    Quic,
+    /// Raw TLS over TCP. Used in TEE mode where the coordinator has an ephemeral cert
+    /// verified via attestation. `cert_path` is not required.
+    Tls,
+}
+
 /// A coordinator in the network config file.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct NetworkCoordinatorConfig {
     /// The DNS name of the party.
     pub dns_name: Address,
+    /// Protocol for the coordinator connection.
+    #[serde(default)]
+    pub protocol: CoordinatorProtocol,
     /// The path to the public certificate of the party.
-    pub cert_path: PathBuf,
+    /// Required for QUIC mode, optional for TLS/TEE mode.
+    #[serde(default)]
+    pub cert_path: Option<PathBuf>,
 }
 
 /// A party in the network.
@@ -125,17 +146,14 @@ pub struct NetworkParty {
     pub dns_name: Address,
     /// The public certificate of the party.
     pub cert: CertificateDer<'static>,
+    /// Connection protocol (only meaningful for coordinators).
+    pub protocol: CoordinatorProtocol,
 }
 
 impl NetworkParty {
     /// Construct a new [`NetworkParty`] type.
     pub fn new(id: usize, worker: usize, address: Address, cert: CertificateDer<'static>) -> Self {
-        Self {
-            id,
-            worker,
-            dns_name: address,
-            cert,
-        }
+        Self { id, worker, dns_name: address, cert, protocol: CoordinatorProtocol::default() }
     }
 }
 
@@ -148,6 +166,7 @@ impl TryFrom<NetworkWorkerConfig> for NetworkParty {
             worker: value.worker,
             dns_name: value.dns_name,
             cert,
+            protocol: CoordinatorProtocol::default(),
         })
     }
 }
@@ -155,12 +174,16 @@ impl TryFrom<NetworkWorkerConfig> for NetworkParty {
 impl TryFrom<NetworkCoordinatorConfig> for NetworkParty {
     type Error = std::io::Error;
     fn try_from(value: NetworkCoordinatorConfig) -> Result<Self, Self::Error> {
-        let cert = CertificateDer::from(std::fs::read(value.cert_path)?).into_owned();
+        let cert = match value.cert_path {
+            Some(path) => CertificateDer::from(std::fs::read(path)?).into_owned(),
+            None => CertificateDer::from(vec![]),
+        };
         Ok(NetworkParty {
             id: usize::MAX,
             worker: usize::MAX,
             dns_name: value.dns_name,
             cert,
+            protocol: value.protocol,
         })
     }
 }
@@ -188,6 +211,9 @@ pub struct NetworkConfigFile {
     pub key_path: PathBuf,
     /// The connect timeout in seconds.
     pub timeout_secs: Option<u64>,
+    /// Optional TLS listen address for accepting user proof requests.
+    #[serde(default)]
+    pub user_listen_addr: Option<SocketAddr>,
 }
 
 /// The network configuration.
@@ -209,6 +235,8 @@ pub struct NetworkConfig {
     pub key: PrivateKeyDer<'static>,
     /// The connect timeout.
     pub timeout: Option<Duration>,
+    /// Optional TLS listen address for accepting user proof requests.
+    pub user_listen_addr: Option<SocketAddr>,
 }
 
 impl NetworkConfig {
@@ -230,15 +258,14 @@ impl NetworkConfig {
             bind_addr,
             key,
             timeout,
+            user_listen_addr: None,
         }
     }
 
     pub fn for_worker(&self, worker: usize) -> NetworkConfig {
         let mut config = self.clone();
         config.worker = worker;
-        config
-            .bind_addr
-            .set_port(config.bind_addr.port() + 10 * worker as u16);
+        config.bind_addr.set_port(config.bind_addr.port() + 10 * worker as u16);
         config.parties.iter_mut().for_each(|party| {
             party.worker = worker;
             party.dns_name.port = party.dns_name.port + 10 * worker as u16;
@@ -266,14 +293,9 @@ impl NetworkConfig {
 impl TryFrom<NetworkConfigFile> for NetworkConfig {
     type Error = std::io::Error;
     fn try_from(value: NetworkConfigFile) -> Result<Self, Self::Error> {
-        let parties = value
-            .parties
-            .into_iter()
-            .map(NetworkParty::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
+        let parties = value.parties.into_iter().map(NetworkParty::try_from).collect::<Result<Vec<_>, _>>()?;
 
-        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(std::fs::read(value.key_path)?))
-            .clone_key();
+        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(std::fs::read(value.key_path)?)).clone_key();
         Ok(NetworkConfig {
             parties,
             is_coordinator: value.is_coordinator,
@@ -283,6 +305,7 @@ impl TryFrom<NetworkConfigFile> for NetworkConfig {
             bind_addr: value.bind_addr,
             key,
             timeout: value.timeout_secs.map(Duration::from_secs),
+            user_listen_addr: value.user_listen_addr,
         })
     }
 }
@@ -298,6 +321,7 @@ impl Clone for NetworkConfig {
             bind_addr: self.bind_addr,
             key: self.key.clone_key(),
             timeout: self.timeout,
+            user_listen_addr: self.user_listen_addr,
         }
     }
 }
@@ -310,13 +334,7 @@ impl NetworkConfig {
         self.parties
             .iter()
             .find(|p| p.id == self.my_id)
-            .ok_or_else(|| {
-                eyre::eyre!(
-                    "my_id {} not found in list of parties: {:?}",
-                    self.my_id,
-                    self.parties
-                )
-            })?;
+            .ok_or_else(|| eyre::eyre!("my_id {} not found in list of parties: {:?}", self.my_id, self.parties))?;
         // 2. check that all parties have a unique id
         let mut ids = self.parties.iter().map(|p| p.id).collect::<Vec<_>>();
         ids.sort_unstable();
@@ -329,119 +347,92 @@ impl NetworkConfig {
 
     pub fn generate_worker_configs(
         num_workers: usize,
-    ) -> (
-        BTreeMap<PartyWorkerID, NetworkConfigFile>,
-        NetworkConfigFile,
-    ) {
+    ) -> (BTreeMap<PartyWorkerID, NetworkConfigFile>, NetworkConfigFile) {
+        Self::generate_worker_configs_with_dir(num_workers, "data")
+    }
+
+    pub fn generate_worker_configs_with_dir(
+        num_workers: usize,
+        data_dir: &str,
+    ) -> (BTreeMap<PartyWorkerID, NetworkConfigFile>, NetworkConfigFile) {
+        Self::generate_worker_configs_full(num_workers, data_dir, 10000, 20000)
+    }
+
+    pub fn generate_worker_configs_full(
+        num_workers: usize,
+        data_dir: &str,
+        inter_party_base_port: u16,
+        coordinator_port: u16,
+    ) -> (BTreeMap<PartyWorkerID, NetworkConfigFile>, NetworkConfigFile) {
         let mut parties = vec![
             NetworkWorkerConfig {
                 id: 0,
                 worker: 0,
-                dns_name: "localhost:10000".parse().unwrap(),
-                cert_path: "data/cert0_0.der".into(),
+                dns_name: format!("localhost:{}", inter_party_base_port).parse().unwrap(),
+                cert_path: format!("{data_dir}/cert0_0.der").into(),
             },
             NetworkWorkerConfig {
                 id: 1,
                 worker: 0,
-                dns_name: "localhost:10001".parse().unwrap(),
-                cert_path: "data/cert0_1.der".into(),
+                dns_name: format!("localhost:{}", inter_party_base_port + 1).parse().unwrap(),
+                cert_path: format!("{data_dir}/cert0_1.der").into(),
             },
             NetworkWorkerConfig {
                 id: 2,
                 worker: 0,
-                dns_name: "localhost:10002".parse().unwrap(),
-                cert_path: "data/cert0_2.der".into(),
+                dns_name: format!("localhost:{}", inter_party_base_port + 2).parse().unwrap(),
+                cert_path: format!("{data_dir}/cert0_2.der").into(),
             },
         ];
         let coordinator = NetworkCoordinatorConfig {
-            dns_name: "localhost:20000".parse().unwrap(),
-            cert_path: "data/cert_coordinator.der".into(),
+            dns_name: format!("localhost:{coordinator_port}").parse().unwrap(),
+            protocol: CoordinatorProtocol::default(),
+            cert_path: Some(format!("{data_dir}/cert_coordinator.der").into()),
         };
         let mut workers = BTreeMap::new();
 
         for worker in 0..num_workers {
             let worker_port_offset = 1000 * worker as u16;
 
-            // TODO: refactor with inner loop in 0..=2
-            parties[0].worker = worker;
-            parties[0].dns_name.port += worker_port_offset;
-            parties[0].cert_path = format!("data/cert{}_0.der", worker).into();
+            for party in 0..=2usize {
+                parties[party].worker = worker;
+                parties[party].dns_name.port = inter_party_base_port + party as u16 + worker_port_offset;
+                parties[party].cert_path = format!("{data_dir}/cert{worker}_{party}.der").into();
+            }
 
-            parties[1].worker = worker;
-            parties[1].dns_name.port += worker_port_offset;
-            parties[1].cert_path = format!("data/cert{}_1.der", worker).into();
-
-            parties[2].worker = worker;
-            parties[2].dns_name.port += worker_port_offset;
-            parties[2].cert_path = format!("data/cert{}_2.der", worker).into();
-
-            workers.insert(
-                PartyWorkerID::new(0, worker),
-                NetworkConfigFile {
-                    my_id: 0,
-                    worker,
-                    bind_addr: SocketAddr::new(
-                        IpAddr::from_str("0.0.0.0").unwrap(),
-                        10000 + worker_port_offset,
-                    ),
-                    key_path: format!("data/key{}_0.der", worker).into(),
-                    parties: parties.clone(),
-                    coordinator: Some(coordinator.clone()),
-                    is_coordinator: false,
-                    timeout_secs: None,
-                },
-            );
-            workers.insert(
-                PartyWorkerID::new(1, worker),
-                NetworkConfigFile {
-                    my_id: 1,
-                    worker,
-                    bind_addr: SocketAddr::new(
-                        IpAddr::from_str("0.0.0.0").unwrap(),
-                        10001 + worker_port_offset,
-                    ),
-                    key_path: format!("data/key{}_1.der", worker).into(),
-                    parties: parties.clone(),
-                    coordinator: Some(coordinator.clone()),
-                    is_coordinator: false,
-                    timeout_secs: None,
-                },
-            );
-            workers.insert(
-                PartyWorkerID::new(2, worker),
-                NetworkConfigFile {
-                    my_id: 2,
-                    worker,
-                    bind_addr: SocketAddr::new(
-                        IpAddr::from_str("0.0.0.0").unwrap(),
-                        10002 + worker_port_offset,
-                    ),
-                    key_path: format!("data/key{}_2.der", worker).into(),
-                    parties: parties.clone(),
-                    coordinator: Some(coordinator.clone()),
-                    is_coordinator: false,
-                    timeout_secs: None,
-                },
-            );
+            for party in 0..=2usize {
+                workers.insert(
+                    PartyWorkerID::new(party, worker),
+                    NetworkConfigFile {
+                        my_id: party,
+                        worker,
+                        bind_addr: SocketAddr::new(
+                            IpAddr::from_str("0.0.0.0").unwrap(),
+                            inter_party_base_port + party as u16 + worker_port_offset,
+                        ),
+                        key_path: format!("{data_dir}/key{worker}_{party}.der").into(),
+                        parties: parties.clone(),
+                        coordinator: Some(coordinator.clone()),
+                        is_coordinator: false,
+                        timeout_secs: None,
+                        user_listen_addr: None,
+                    },
+                );
+            }
         }
 
         let coordinator_config = NetworkConfigFile {
             is_coordinator: true,
             my_id: 0,
             worker: 0,
-            bind_addr: SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), 20000),
-            key_path: format!("data/key_coordinator.der").into(),
+            bind_addr: SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), coordinator_port),
+            key_path: format!("{data_dir}/key_coordinator.der").into(),
             parties: (0..num_workers)
-                .flat_map(|i| {
-                    workers
-                        .get(&PartyWorkerID::new(0, i))
-                        .unwrap()
-                        .parties
-                        .clone()
-                })
+                .flat_map(|i| workers.get(&PartyWorkerID::new(0, i)).unwrap().parties.clone())
                 .collect(),
             coordinator: Some(coordinator),
             timeout_secs: None,
+            user_listen_addr: None,
         };
 
         (workers, coordinator_config)

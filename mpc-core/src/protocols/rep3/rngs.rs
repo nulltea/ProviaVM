@@ -2,18 +2,15 @@
 //!
 //! This module contains implementations of rep3 rngs
 
-use super::yao::GCUtils;
 use crate::RngType;
+use crate::field::PrimeField;
+use crate::protocols::rep3::PartyID;
 use ark_ec::CurveGroup;
-use ark_ff::{One, PrimeField};
+use ark_ff::One;
 use ark_linear_sumcheck::rng::FeedableRNG;
-use fancy_garbling::WireMod2;
-use mpc_types::protocols::rep3::id::PartyID;
 use num_bigint::BigUint;
 use parking_lot::Mutex;
-use rand::{
-    Rng, RngCore, SeedableRng, distributions::Standard, prelude::Distribution, seq::SliceRandom,
-};
+use rand::{Rng, RngCore, SeedableRng, distributions::Standard, prelude::Distribution};
 use rayon::prelude::*;
 use std::ops::Add;
 
@@ -28,11 +25,7 @@ pub struct Rep3CorrelatedRng {
 impl Rep3CorrelatedRng {
     /// Construct a new [`Rep3CorrelatedRng`]
     pub fn new(rand: Rep3Rand, bitcomp1: Rep3RandBitComp, bitcomp2: Rep3RandBitComp) -> Self {
-        Self {
-            rand,
-            bitcomp1,
-            bitcomp2,
-        }
+        Self { rand, bitcomp1, bitcomp2 }
     }
 
     /// Create a fork of the current rng
@@ -40,11 +33,7 @@ impl Rep3CorrelatedRng {
         let rand = self.rand.fork();
         let bitcomp1 = self.bitcomp1.fork();
         let bitcomp2 = self.bitcomp2.fork();
-        Self {
-            rand,
-            bitcomp1,
-            bitcomp2,
-        }
+        Self { rand, bitcomp1, bitcomp2 }
     }
 
     /// Generate a value that is equal on all three parties
@@ -68,15 +57,6 @@ impl Rep3CorrelatedRng {
             PartyID::ID0 => panic!("Garbler should not be PartyID::ID0"),
             PartyID::ID1 => self.rand.rng1.r#gen(),
             PartyID::ID2 => self.rand.rng2.r#gen(),
-        }
-    }
-
-    /// Generate a random delta that is equal for the two garblers
-    pub fn generate_random_garbler_delta(&mut self, id: PartyID) -> Option<WireMod2> {
-        match id {
-            PartyID::ID0 => None,
-            PartyID::ID1 => Some(GCUtils::random_delta(&mut self.rand.rng1)),
-            PartyID::ID2 => Some(GCUtils::random_delta(&mut self.rand.rng2)),
         }
     }
 }
@@ -105,8 +85,8 @@ impl RngForker<RngType> {
 #[derive(Debug)]
 /// Rep3 rng with this party's rng and the prev party's rng
 pub struct Rep3Rand {
-    rng1: RngType,
-    rng2: RngType,
+    pub(crate) rng1: RngType,
+    pub(crate) rng2: RngType,
 }
 
 impl Rep3Rand {
@@ -116,6 +96,12 @@ impl Rep3Rand {
         let rng2 = RngType::from_seed(seed2);
 
         Self { rng1, rng2 }
+    }
+
+    /// Snapshot RNG state for later deterministic regeneration.
+    /// Returns (seed1, word_pos1, seed2, word_pos2).
+    pub fn snapshot(&self) -> ([u8; crate::SEED_SIZE], u128, [u8; crate::SEED_SIZE], u128) {
+        (self.rng1.get_seed(), self.rng1.get_word_pos(), self.rng2.get_seed(), self.rng2.get_word_pos())
     }
 
     /// Create a fork of this rng
@@ -160,9 +146,7 @@ impl Rep3Rand {
     // TODO do not collect the values
     /// Generate a vector of masking field elements
     pub fn masking_field_elements_vec<F: PrimeField>(&mut self, len: usize) -> Vec<F> {
-        let field_size = usize::try_from(F::MODULUS_BIT_SIZE)
-            .expect("u32 fits into usize")
-            .div_ceil(8);
+        let field_size = usize::try_from(F::MODULUS_BIT_SIZE).expect("u32 fits into usize").div_ceil(8);
         let mut a = vec![0_u8; field_size * len];
         let mut b = vec![0_u8; field_size * len];
         rayon::join(
@@ -191,11 +175,7 @@ impl Rep3Rand {
             || (0..len).map(|_| self.rng1.r#gen()).collect::<Vec<_>>(),
             || (0..len).map(|_| self.rng2.r#gen()).collect::<Vec<_>>(),
         );
-        a.into_par_iter()
-            .zip_eq(b.into_par_iter())
-            .with_min_len(512)
-            .map(|(a, b)| a - b)
-            .collect()
+        a.into_par_iter().zip_eq(b.into_par_iter()).with_min_len(512).map(|(a, b)| a - b).collect()
     }
 
     /// Create a masking elliptic cureve element
@@ -268,15 +248,6 @@ impl Rep3Rand {
         let seed2 = self.rng2.r#gen();
         (seed1, seed2)
     }
-
-    /// Generate a random shared permutation
-    pub(crate) fn random_perm<T: Clone>(&mut self, input: Vec<T>) -> (Vec<T>, Vec<T>) {
-        let mut a = input.to_owned();
-        let mut b = input;
-        a.shuffle(&mut self.rng1);
-        b.shuffle(&mut self.rng2);
-        (a, b)
-    }
 }
 
 /// This struct is responsible for creating random shares for the Binary to Arithmetic conversion. The approach is the following: for a final sharing x = x1 + x2 + x3, we want to have random values x2, x3 and subtract these from the original value x using a binary circuit to get the share x1. Hence, we need to sample random x2 and x3 and share them amongst the parties. One RandBitComp struct is responsible for either sampling x2 or x3. For sampling x2, parties 1 and 2 will get x2 in plain (since this is the final share of x), so they need to have a PRF key from all parties. party 3, however, will not get x2 in plain and must thus only be able to sample its shares of x2, requiring two PRF keys.
@@ -290,35 +261,19 @@ pub struct Rep3RandBitComp {
 impl Rep3RandBitComp {
     /// Contruct a new [`Rep3RandBitComp`] w rngs
     pub fn new_2keys(rng1: [u8; crate::SEED_SIZE], rng2: [u8; crate::SEED_SIZE]) -> Self {
-        Self {
-            rng1: RngType::from_seed(rng1),
-            rng2: RngType::from_seed(rng2),
-            rng3: None,
-        }
+        Self { rng1: RngType::from_seed(rng1), rng2: RngType::from_seed(rng2), rng3: None }
     }
 
     /// Contruct a new [`Rep3RandBitComp`] with 3 rngs
-    pub fn new_3keys(
-        rng1: [u8; crate::SEED_SIZE],
-        rng2: [u8; crate::SEED_SIZE],
-        rng3: [u8; crate::SEED_SIZE],
-    ) -> Self {
-        Self {
-            rng1: RngType::from_seed(rng1),
-            rng2: RngType::from_seed(rng2),
-            rng3: Some(RngType::from_seed(rng3)),
-        }
+    pub fn new_3keys(rng1: [u8; crate::SEED_SIZE], rng2: [u8; crate::SEED_SIZE], rng3: [u8; crate::SEED_SIZE]) -> Self {
+        Self { rng1: RngType::from_seed(rng1), rng2: RngType::from_seed(rng2), rng3: Some(RngType::from_seed(rng3)) }
     }
 
     /// Generate three random field elements
     pub fn random_fes_3keys<F: PrimeField>(&mut self) -> (F, F, F) {
         let a = F::rand(&mut self.rng1);
         let b = F::rand(&mut self.rng2);
-        let c = if let Some(rng3) = &mut self.rng3 {
-            F::rand(rng3)
-        } else {
-            unreachable!()
-        };
+        let c = if let Some(rng3) = &mut self.rng3 { F::rand(rng3) } else { unreachable!() };
         (a, b, c)
     }
 
@@ -326,11 +281,7 @@ impl Rep3RandBitComp {
     pub fn random_curves_3keys<C: CurveGroup>(&mut self) -> (C, C, C) {
         let a = C::rand(&mut self.rng1);
         let b = C::rand(&mut self.rng2);
-        let c = if let Some(rng3) = &mut self.rng3 {
-            C::rand(rng3)
-        } else {
-            unreachable!()
-        };
+        let c = if let Some(rng3) = &mut self.rng3 { C::rand(rng3) } else { unreachable!() };
         (a, b, c)
     }
 
@@ -341,11 +292,7 @@ impl Rep3RandBitComp {
     {
         let a = self.rng1.r#gen();
         let b = self.rng2.r#gen();
-        let c = if let Some(rng3) = &mut self.rng3 {
-            rng3.r#gen()
-        } else {
-            unreachable!()
-        };
+        let c = if let Some(rng3) = &mut self.rng3 { rng3.r#gen() } else { unreachable!() };
         (a, b, c)
     }
 
@@ -353,10 +300,7 @@ impl Rep3RandBitComp {
     pub fn fork(&mut self) -> Self {
         let rng1 = RngType::from_seed(self.rng1.r#gen());
         let rng2 = RngType::from_seed(self.rng2.r#gen());
-        let rng3 = self
-            .rng3
-            .as_mut()
-            .map(|rng| RngType::from_seed(rng.r#gen()));
+        let rng3 = self.rng3.as_mut().map(|rng| RngType::from_seed(rng.r#gen()));
         Self { rng1, rng2, rng3 }
     }
 }
@@ -378,11 +322,7 @@ impl<R: RngCore + FeedableRNG> SSRandom<R> {
         let _ = self.rng_1.feed(&self.counter);
     }
     pub fn new(rng_0: R, rng_1: R) -> Self {
-        SSRandom {
-            rng_0,
-            rng_1,
-            counter: 0,
-        }
+        SSRandom { rng_0, rng_1, counter: 0 }
     }
 
     pub fn new_from_str(seed_0: &str, seed_1: &str) -> Self {

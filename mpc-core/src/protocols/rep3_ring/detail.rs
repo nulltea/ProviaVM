@@ -1,13 +1,13 @@
 use super::{binary, conversion};
+use crate::protocols::rep3_ring::{
+    Rep3RingShare,
+    ring::{bit::Bit, int_ring::IntRing2k, ring_impl::RingElement},
+};
 use crate::{
     IoResult,
     protocols::rep3::network::{IoContext, Rep3Network},
 };
 use itertools::izip;
-use mpc_types::protocols::rep3_ring::{
-    Rep3RingShare,
-    ring::{bit::Bit, int_ring::IntRing2k, ring_impl::RingElement},
-};
 use num_traits::{One, Zero};
 use rand::{distributions::Standard, prelude::Distribution};
 
@@ -34,9 +34,7 @@ where
     Standard: Distribution<T>,
 {
     // Add x1 + x2 via a packed Kogge-Stone adder
-    let mut p = izip!(x1.iter(), x2.iter())
-        .map(|(x1, x2)| x1 ^ x2)
-        .collect::<Vec<_>>();
+    let mut p = izip!(x1.iter(), x2.iter()).map(|(x1, x2)| x1 ^ x2).collect::<Vec<_>>();
     let mut g = binary::and_many(x1, x2, io_context)?;
     kogge_stone_inner_many(&mut p, &mut g, io_context)?;
     Ok(g)
@@ -173,19 +171,11 @@ where
 
     let local_a1 = (b1 & a) ^ mask1;
     let local_a2 = (a & b2) ^ mask2;
-    io_context
-        .network
-        .send_next([local_a1.to_owned(), local_a2.to_owned()])?;
+    io_context.network.send_next([local_a1.to_owned(), local_a2.to_owned()])?;
     let [local_b1, local_b2] = io_context.network.recv_prev()?;
 
-    let r1 = Rep3RingShare {
-        a: local_a1,
-        b: local_b1,
-    };
-    let r2 = Rep3RingShare {
-        a: local_a2,
-        b: local_b2,
-    };
+    let r1 = Rep3RingShare { a: local_a1, b: local_b1 };
+    let r2 = Rep3RingShare { a: local_a2, b: local_b2 };
 
     Ok((r1, r2))
 }
@@ -213,21 +203,13 @@ where
         })
         .unzip();
 
-    io_context
-        .network
-        .send_next([local_a1.to_owned(), local_a2.to_owned()])?;
+    io_context.network.send_next([local_a1.to_owned(), local_a2.to_owned()])?;
     let [local_b1, local_b2] = io_context.network.recv_prev::<[Vec<RingElement<T>>; 2]>()?;
 
     let (r1, r2) = izip!(local_a1, local_a2, local_b1, local_b2)
         .map(|(local_a1, local_a2, local_b1, local_b2)| {
-            let r1 = Rep3RingShare {
-                a: local_a1,
-                b: local_b1,
-            };
-            let r2 = Rep3RingShare {
-                a: local_a2,
-                b: local_b2,
-            };
+            let r1 = Rep3RingShare { a: local_a1, b: local_b1 };
+            let r2 = Rep3RingShare { a: local_a2, b: local_b2 };
             (r1, r2)
         })
         .unzip();
@@ -285,8 +267,7 @@ where
 
     let (mut res, c) = kogge_stone_inner_with_carry_many(p, g, io_context)?;
     // let res =
-    res.iter_mut()
-        .for_each(|r| *r = binary::xor_public(&r, &RingElement::one(), io_context.id)); // cin=1
+    res.iter_mut().for_each(|r| *r = binary::xor_public(&r, &RingElement::one(), io_context.id)); // cin=1
     Ok((res, c))
 }
 
@@ -349,8 +330,8 @@ pub(crate) fn unsigned_ge<T: IntRing2k, N: Rep3Network>(
 where
     Standard: Distribution<T>,
 {
-    let a_bits = conversion::a2b_selector(x, io_context)?;
-    let b_bits = conversion::a2b_selector(y, io_context)?;
+    let a_bits = conversion::a2b(x, io_context)?;
+    let b_bits = conversion::a2b(y, io_context)?;
     let (_, r) = low_depth_binary_sub_with_carry(&a_bits, &b_bits, io_context)?;
     Ok(r)
 }
@@ -377,7 +358,7 @@ pub(crate) fn unsigned_ge_const_lhs<T: IntRing2k, N: Rep3Network>(
 where
     Standard: Distribution<T>,
 {
-    let b_bits = conversion::a2b_selector(y, io_context)?;
+    let b_bits = conversion::a2b(y, io_context)?;
     let (_, r) = low_depth_binary_sub_from_const_with_carry(&x, &b_bits, io_context)?;
     Ok(r)
 }
@@ -391,7 +372,68 @@ pub(crate) fn unsigned_ge_const_rhs<T: IntRing2k, N: Rep3Network>(
 where
     Standard: Distribution<T>,
 {
-    let a_bits = conversion::a2b_selector(x, io_context)?;
+    let a_bits = conversion::a2b(x, io_context)?;
     let (_, r) = low_depth_binary_sub_by_const_with_carry(&a_bits, &y, io_context)?;
     Ok(r)
+}
+
+/// Run the Kogge-Stone carry tree on pre-computed propagate/generate vectors.
+/// Returns only the carry-out bits (one per element).
+pub(crate) fn kogge_stone_carries_many<T: IntRing2k, N: Rep3Network>(
+    p: Vec<Rep3RingShare<T>>,
+    g: Vec<Rep3RingShare<T>>,
+    io_context: &mut IoContext<N>,
+) -> IoResult<Vec<Rep3RingShare<Bit>>>
+where
+    Standard: Distribution<T>,
+{
+    let (_, c) = kogge_stone_inner_with_carry_many(p, g, io_context)?;
+    Ok(c)
+}
+
+/// Batched comparison of binary-shared values against public constants: \[x_i\] >= y_i.
+/// Inputs must already be in binary (XOR) domain. Saves one AND round vs `unsigned_ge_many`
+/// by computing generate bits locally (shared AND constant is local).
+pub(crate) fn unsigned_ge_const_rhs_many<T: IntRing2k, N: Rep3Network>(
+    x_bits: &[Rep3RingShare<T>],
+    y_consts: &[RingElement<T>],
+    io_context: &mut IoContext<N>,
+) -> IoResult<Vec<Rep3RingShare<Bit>>>
+where
+    Standard: Distribution<T>,
+{
+    debug_assert_eq!(x_bits.len(), y_consts.len());
+    // Two's complement of each constant (carry_in = 0 since +1 is baked into neg_y)
+    let neg_ys: Vec<RingElement<T>> = y_consts.iter().map(|y| !*y + RingElement::one()).collect();
+    // Generate: g = x & neg_y — AND with constant is LOCAL
+    let g: Vec<Rep3RingShare<T>> = izip!(x_bits, &neg_ys).map(|(x, ny)| x & ny).collect();
+    // Propagate: p = x XOR neg_y — XOR with constant is LOCAL
+    let p: Vec<Rep3RingShare<T>> =
+        izip!(x_bits, &neg_ys).map(|(x, ny)| binary::xor_public(x, ny, io_context.id)).collect();
+    let (_, carries) = kogge_stone_inner_with_carry_many(p, g, io_context)?;
+    // When y is zero, two's complement overflows: flip carry
+    let result = izip!(carries, y_consts).map(|(c, y)| if y.is_zero() { !c } else { c }).collect();
+    Ok(result)
+}
+
+/// Batched comparison of public constants against binary-shared values: x_i >= \[y_i\].
+/// Inputs must already be in binary (XOR) domain. Saves one AND round vs `unsigned_ge_many`.
+pub(crate) fn unsigned_ge_const_lhs_many<T: IntRing2k, N: Rep3Network>(
+    x_consts: &[RingElement<T>],
+    y_bits: &[Rep3RingShare<T>],
+    io_context: &mut IoContext<N>,
+) -> IoResult<Vec<Rep3RingShare<Bit>>>
+where
+    Standard: Distribution<T>,
+{
+    debug_assert_eq!(x_consts.len(), y_bits.len());
+    // x_const - y_shared = x_const + ~y + 1 (carry_in = 1)
+    let y_neg: Vec<Rep3RingShare<T>> = y_bits.iter().map(|y| !y).collect();
+    let p: Vec<Rep3RingShare<T>> =
+        izip!(&y_neg, x_consts).map(|(yn, xc)| binary::xor_public(yn, xc, io_context.id)).collect();
+    let mut g: Vec<Rep3RingShare<T>> = izip!(&y_neg, x_consts).map(|(yn, xc)| yn & xc).collect();
+    // carry_in = 1: XOR LSB of p into g
+    izip!(g.iter_mut(), p.iter()).for_each(|(g, p)| *g ^= *p & RingElement::one());
+    let (_, c) = kogge_stone_inner_with_carry_many(p, g, io_context)?;
+    Ok(c)
 }

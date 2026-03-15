@@ -2,26 +2,22 @@
 //!
 //! This module contains operations with arithmetic shares
 
+pub use super::types::{Rep3RingShare, Rep3RingSignedShare};
+
+use crate::protocols::{
+    rep3::PartyID,
+    rep3_ring::ring::{bit::Bit, int_ring::IntRing2k, ring_impl::RingElement},
+};
 use crate::{
     IoResult,
-    protocols::{
-        rep3::{
+    protocols::rep3::{
             network::{IoContext, Rep3Network},
             rngs::Rep3CorrelatedRng,
         },
-        rep3_ring::binary::add_many,
-    },
 };
 use itertools::{Itertools, izip};
-use mpc_types::protocols::{
-    rep3::id::PartyID,
-    rep3_ring::{
-        Rep3RingShare,
-        ring::{bit::Bit, int_ring::IntRing2k, ring_impl::RingElement},
-    },
-};
 use num_traits::{One, Zero};
-use rand::{Rng, distributions::Standard, prelude::Distribution};
+use rand::{distributions::Standard, prelude::Distribution};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use super::{binary, conversion, detail};
@@ -29,19 +25,6 @@ use super::{binary, conversion, detail};
 /// Type alias for a [`Rep3RingShare`] which is used for both arithmetic and binary shares.
 pub type RingShare<F> = Rep3RingShare<F>;
 
-pub fn generate_shares_rep3<T: IntRing2k, R: Rng>(val: T, rng: &mut R) -> Vec<Rep3RingShare<T>>
-where
-    Standard: Distribution<T>,
-{
-    let t0 = rng.r#gen::<T>();
-    let t1 = rng.r#gen::<T>();
-    let t2 = val - t0 - t1;
-
-    let p_share_0 = Rep3RingShare::new(t0, t2);
-    let p_share_1 = Rep3RingShare::new(t1, t0);
-    let p_share_2 = Rep3RingShare::new(t2, t1);
-    vec![p_share_0, p_share_1, p_share_2]
-}
 /// Performs addition between two shared values.
 pub fn add<T: IntRing2k>(a: RingShare<T>, b: RingShare<T>) -> RingShare<T> {
     a + b
@@ -53,11 +36,7 @@ pub fn add_assign<T: IntRing2k>(shared: &mut RingShare<T>, b: RingShare<T>) {
 }
 
 /// Performs addition between a shared value and a public value.
-pub fn add_public<T: IntRing2k>(
-    shared: RingShare<T>,
-    public: RingElement<T>,
-    id: PartyID,
-) -> RingShare<T> {
+pub fn add_public<T: IntRing2k>(shared: RingShare<T>, public: RingElement<T>, id: PartyID) -> RingShare<T> {
     let mut res = shared;
     match id {
         PartyID::ID0 => res.a += public,
@@ -68,11 +47,7 @@ pub fn add_public<T: IntRing2k>(
 }
 
 /// Performs addition between a shared value and a public value in place.
-pub fn add_assign_public<T: IntRing2k>(
-    shared: &mut RingShare<T>,
-    public: RingElement<T>,
-    id: PartyID,
-) {
+pub fn add_assign_public<T: IntRing2k>(shared: &mut RingShare<T>, public: RingElement<T>, id: PartyID) {
     match id {
         PartyID::ID0 => shared.a += public,
         PartyID::ID1 => shared.b += public,
@@ -105,20 +80,12 @@ pub fn sub_vec_assign<T: IntRing2k>(lhs: &mut [RingShare<T>], rhs: &[RingShare<T
 }
 
 /// Performs subtraction between a shared value and a public value, returning shared - public.
-pub fn sub_shared_by_public<T: IntRing2k>(
-    shared: RingShare<T>,
-    public: RingElement<T>,
-    id: PartyID,
-) -> RingShare<T> {
+pub fn sub_shared_by_public<T: IntRing2k>(shared: RingShare<T>, public: RingElement<T>, id: PartyID) -> RingShare<T> {
     add_public(shared, -public, id)
 }
 
 /// Performs subtraction between a shared value and a public value, returning public - shared.
-pub fn sub_public_by_shared<T: IntRing2k>(
-    public: RingElement<T>,
-    shared: RingShare<T>,
-    id: PartyID,
-) -> RingShare<T> {
+pub fn sub_public_by_shared<T: IntRing2k>(public: RingElement<T>, shared: RingShare<T>, id: PartyID) -> RingShare<T> {
     add_public(-shared, public, id)
 }
 
@@ -133,10 +100,7 @@ where
 {
     let local_a = a * b + io_context.rngs.rand.masking_element::<RingElement<T>>();
     let local_b = io_context.network.reshare(local_a)?;
-    Ok(RingShare {
-        a: local_a,
-        b: local_b,
-    })
+    Ok(RingShare { a: local_a, b: local_b })
 }
 
 /// Performs multiplication of a shared value and a public value.
@@ -185,9 +149,7 @@ pub fn reshare_vec<T: IntRing2k, N: Rep3Network>(
             "During execution of mul_vec in MPC: Invalid number of elements received",
         ));
     }
-    Ok(izip!(local_a, local_b)
-        .map(|(a, b)| RingShare::new_ring(a, b))
-        .collect())
+    Ok(izip!(local_a, local_b).map(|(a, b)| RingShare::new_ring(a, b)).collect())
 }
 
 /// Performs element-wise multiplication of two vectors of shared values.
@@ -218,10 +180,7 @@ pub fn neg<T: IntRing2k>(a: RingShare<T>) -> RingShare<T> {
 }
 
 /// Performs the opening of a shared value and returns the equivalent public value.
-pub fn open<T: IntRing2k, N: Rep3Network>(
-    a: RingShare<T>,
-    io_context: &mut IoContext<N>,
-) -> IoResult<RingElement<T>> {
+pub fn open<T: IntRing2k, N: Rep3Network>(a: RingShare<T>, io_context: &mut IoContext<N>) -> IoResult<RingElement<T>> {
     let c = io_context.network.reshare(a.b)?;
     Ok(a.a + a.b + c)
 }
@@ -243,10 +202,7 @@ pub fn open_vec<T: IntRing2k, N: Rep3Network>(
     // TODO think about something better... it is not so bad
     // because we use it exactly once in PLONK where we do it for 4
     // shares..
-    let (a, b) = a
-        .iter()
-        .map(|share| (share.a, share.b))
-        .collect::<(Vec<RingElement<T>>, Vec<RingElement<T>>)>();
+    let (a, b) = a.iter().map(|share| (share.a, share.b)).collect::<(Vec<RingElement<T>>, Vec<RingElement<T>>)>();
     let c = io_context.network.reshare_many(&b)?;
     Ok(izip!(a, b, c).map(|(a, b, c)| a + b + c).collect_vec())
 }
@@ -284,11 +240,7 @@ where
 }
 
 /// Convenience method for \[a\] + \[b\] * c
-pub fn add_mul_public<T: IntRing2k>(
-    a: RingShare<T>,
-    b: RingShare<T>,
-    c: RingElement<T>,
-) -> RingShare<T> {
+pub fn add_mul_public<T: IntRing2k>(a: RingShare<T>, b: RingShare<T>, c: RingElement<T>) -> RingShare<T> {
     add(a, mul_public(b, c))
 }
 
@@ -307,10 +259,7 @@ where
 }
 
 /// Transforms a public value into a shared value: \[a\] = a.
-pub fn promote_to_trivial_share<T: IntRing2k>(
-    id: PartyID,
-    public_value: RingElement<T>,
-) -> RingShare<T> {
+pub fn promote_to_trivial_share<T: IntRing2k>(id: PartyID, public_value: RingElement<T>) -> RingShare<T> {
     match id {
         PartyID::ID0 => Rep3RingShare::new_ring(public_value, RingElement::zero()),
         PartyID::ID1 => Rep3RingShare::new_ring(RingElement::zero(), public_value),
@@ -341,9 +290,8 @@ pub fn mul_open_vec<T: IntRing2k, N: Rep3Network>(
 where
     Standard: Distribution<T>,
 {
-    let mut a = izip!(a, b)
-        .map(|(a, b)| a * b + io_context.rngs.rand.masking_element::<RingElement<T>>())
-        .collect_vec();
+    let mut a =
+        izip!(a, b).map(|(a, b)| a * b + io_context.rngs.rand.masking_element::<RingElement<T>>()).collect_vec();
     let (b, c) = io_context.network.broadcast_many(&a)?;
     izip!(a.iter_mut(), b, c).for_each(|(a, b, c)| *a += b + c);
     Ok(a)
@@ -512,6 +460,46 @@ where
     detail::unsigned_ge_const_rhs(lhs, rhs, io_context)
 }
 
+/// Run the Kogge-Stone carry tree on pre-computed propagate/generate bit vectors.
+/// Returns carry-out bits. Use when the caller has already computed (p, g) with
+/// a mix of local and MPC operations.
+pub fn kogge_stone_carries_many<T: IntRing2k, N: Rep3Network>(
+    p: Vec<RingShare<T>>,
+    g: Vec<RingShare<T>>,
+    io_context: &mut IoContext<N>,
+) -> IoResult<Vec<RingShare<Bit>>>
+where
+    Standard: Distribution<T>,
+{
+    detail::kogge_stone_carries_many(p, g, io_context)
+}
+
+/// Batched comparison: \[lhs_i\] >= rhs_i, where rhs values are public constants.
+/// Inputs must be in binary (XOR) domain. Saves one AND round vs `ge_many`.
+pub fn ge_const_rhs_many<T: IntRing2k, N: Rep3Network>(
+    lhs: &[RingShare<T>],
+    rhs: &[RingElement<T>],
+    io_context: &mut IoContext<N>,
+) -> IoResult<Vec<RingShare<Bit>>>
+where
+    Standard: Distribution<T>,
+{
+    detail::unsigned_ge_const_rhs_many(lhs, rhs, io_context)
+}
+
+/// Batched comparison: lhs_i >= \[rhs_i\], where lhs values are public constants.
+/// Inputs must be in binary (XOR) domain. Saves one AND round vs `ge_many`.
+pub fn ge_const_lhs_many<T: IntRing2k, N: Rep3Network>(
+    lhs: &[RingElement<T>],
+    rhs: &[RingShare<T>],
+    io_context: &mut IoContext<N>,
+) -> IoResult<Vec<RingShare<Bit>>>
+where
+    Standard: Distribution<T>,
+{
+    detail::unsigned_ge_const_lhs_many(lhs, rhs, io_context)
+}
+
 /// Checks if a shared value is equal to a public value. The result is a shared value that has value 1 if the two values are equal and 0 otherwise.
 pub fn eq_public<T: IntRing2k, N: Rep3Network>(
     shared: RingShare<T>,
@@ -535,7 +523,7 @@ where
     Standard: Distribution<T>,
 {
     let diff = sub(a, b);
-    let bits = conversion::a2b_selector(diff, io_context)?;
+    let bits = conversion::a2b(diff, io_context)?;
     let is_zero = binary::is_zero(&bits, io_context)?;
     Ok(is_zero)
 }
@@ -594,10 +582,7 @@ where
 }
 
 /// Outputs whether a shared value is zero (true) or not (false).
-pub fn is_zero<T: IntRing2k, N: Rep3Network>(
-    a: RingShare<T>,
-    io_context: &mut IoContext<N>,
-) -> IoResult<bool>
+pub fn is_zero<T: IntRing2k, N: Rep3Network>(a: RingShare<T>, io_context: &mut IoContext<N>) -> IoResult<bool>
 where
     Standard: Distribution<T>,
 {
@@ -629,19 +614,12 @@ pub fn pow_2_public<T: IntRing2k>(shared: RingShare<T>, public: RingElement<T>) 
     if public.is_zero() {
         shared
     } else {
-        let shift: usize = public.0.try_into().unwrap_or_else(|_| {
-            panic!(
-                "Expected left shift to be maximal {}, but was {}",
-                T::K,
-                public.0
-            )
-        });
+        let shift: usize = public
+            .0
+            .try_into()
+            .unwrap_or_else(|_| panic!("Expected left shift to be maximal {}, but was {}", T::K, public.0));
         if shift >= T::K {
-            panic!(
-                "Expected left shift to be maximal {}, but was {}",
-                T::K,
-                shift
-            );
+            panic!("Expected left shift to be maximal {}, but was {}", T::K, shift);
         } else {
             mul_public(shared, RingElement::one() << shift)
         }
@@ -687,10 +665,6 @@ where
     }
 
     let b = io_context.network.reshare_many(&a)?;
-    let res = a
-        .into_iter()
-        .zip(b)
-        .map(|(a, b)| RingShare { a, b })
-        .collect();
+    let res = a.into_iter().zip(b).map(|(a, b)| RingShare { a, b }).collect();
     Ok(res)
 }

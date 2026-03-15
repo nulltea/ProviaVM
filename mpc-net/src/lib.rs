@@ -1,5 +1,6 @@
-pub mod topology;
+pub mod id;
 pub mod rep3;
+pub mod topology;
 
 pub(crate) use color_eyre::eyre::Result;
 use std::{sync::Mutex, time::Duration};
@@ -56,10 +57,7 @@ pub(crate) struct MpcNetworkHandlerWrapperMut<H: MpcNetworkHandlerShutdown = Mpc
 impl<H: MpcNetworkHandlerShutdown> MpcNetworkHandlerWrapperMut<H> {
     /// Create a new wrapper
     pub fn new(runtime: Runtime, inner: H) -> Self {
-        Self {
-            runtime,
-            inner: Mutex::new(inner),
-        }
+        Self { runtime, inner: Mutex::new(inner) }
     }
 }
 

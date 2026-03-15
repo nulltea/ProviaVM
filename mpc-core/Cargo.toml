@@ -15,6 +15,7 @@ ark-linear-sumcheck.workspace = true
 rand.workspace = true
 itertools.workspace = true
 eyre.workspace = true
+color-eyre = { workspace = true, optional = true }
 rayon = { version = "1.10.0", optional = true }
 rand_chacha.workspace = true
 tracing.workspace = true
@@ -25,16 +26,12 @@ bytes = { workspace = true }
 subtle = { workspace = true }
 thiserror = { workspace = true }
 bytesize = { workspace = true }
-nom = "7"
-sha3 = "0.10.8"
-fancy-garbling = { git = "https://github.com/GaloisInc/swanky", rev = "5ff648457218b74da9d8323b7ca47166ff5be4b3" }
-scuttlebutt = { git = "https://github.com/GaloisInc/swanky", rev = "5ff648457218b74da9d8323b7ca47166ff5be4b3" }
 parking_lot = "0.12.0"
-
-
-mpc-types.workspace = true
 mpc-net = { path = "../mpc-net" }
-snarks-core = { path = "../snarks-core" }
+jolt-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [features]
 default = ["std", "parallel"]
@@ -47,3 +44,7 @@ parallel = [
     "ark-std/parallel",
     "rayon",
 ]
+test-utils = ["std", "color-eyre"]
+reuse-preproc = []
+ring-msm = []
+rv64 = []

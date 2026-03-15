@@ -11,8 +11,8 @@ clap = { workspace = true }
 futures = "0.3.30"
 quinn = { version = "0.11", optional = true }
 rcgen = "0.13"
-rustls = "0.23.15"
-serde = { workspace = true }
+rustls = { version = "0.23.15", default-features = false, features = ["std", "tls12", "ring"] }
+serde = { workspace = true, features = ["derive"] }
 tokio = { version = "1.34.0", features = [
     "rt",
     "rt-multi-thread",
@@ -32,8 +32,7 @@ bytesize = { workspace = true }
 rayon = { version = "1.10.0" }
 once_cell = "1.20.0"
 dashmap = "5.4.0"
-
-mpc-types.workspace = true
+libc = "0.2"
 
 mpi = { version = "0.7.0", features = [
     "user-operations",
@@ -45,3 +44,4 @@ mpi = { version = "0.7.0", features = [
 default = ["quic"]
 mpi = ["dep:mpi"]
 quic = ["dep:quinn", "dep:tokio", "dep:tokio-util"]
+tls = []

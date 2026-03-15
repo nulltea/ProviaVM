@@ -1,4 +1,5 @@
-use ark_ff::{Field, PrimeField, Zero};
+use ark_ff::{Field, Zero};
+use crate::field::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rand::Rng;
