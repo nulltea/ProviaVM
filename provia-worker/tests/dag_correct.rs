@@ -1,3 +1,8 @@
+// Ensure inline #[ctor] registers sequence builders.
+use jolt_inlines_sha2 as _;
+use jolt_inlines_bigint as _;
+use jolt_inlines_rsa as _;
+
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ark_bn254::Fr;

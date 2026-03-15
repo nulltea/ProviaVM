@@ -200,7 +200,6 @@ use tracer::instruction::virtual_pow2_w::VirtualPow2W;
 use tracer::instruction::virtual_pow2i::VirtualPow2I;
 #[cfg(feature = "rv64")]
 use tracer::instruction::virtual_pow2i_w::VirtualPow2IW;
-#[cfg(feature = "rv64")]
 use tracer::instruction::virtual_rev8w::VirtualRev8W;
 use tracer::instruction::virtual_rotri::VirtualROTRI;
 #[cfg(feature = "rv64")]
@@ -446,7 +445,7 @@ define_rep3_cycle! {
         VirtualAssertMulUNoOverflow, VirtualChangeDivisor,
         VirtualLW, VirtualSW,
         VirtualMove, VirtualMovsign, VirtualMULI,
-        VirtualPow2, VirtualPow2I, VirtualROTRI,
+        VirtualPow2, VirtualPow2I, VirtualRev8W, VirtualROTRI,
         VirtualShiftRightBitmask, VirtualShiftRightBitmaskI,
         VirtualSRA, VirtualSRAI, VirtualSRL, VirtualSRLI,
         VirtualXORROT32, VirtualXORROT24, VirtualXORROT16, VirtualXORROT63,
@@ -553,7 +552,7 @@ impl_rep3_lookup_query! {
         VirtualChangeDivisor, VirtualAssertMulUNoOverflow,
         VirtualLW, VirtualSW,
         VirtualMove, VirtualMovsign, VirtualMULI, VirtualPow2,
-        VirtualPow2I, VirtualShiftRightBitmask, VirtualShiftRightBitmaskI,
+        VirtualPow2I, VirtualRev8W, VirtualShiftRightBitmask, VirtualShiftRightBitmaskI,
         VirtualROTRI,
         VirtualSRA, VirtualSRAI, VirtualSRL, VirtualSRLI,
         VirtualXORROT32, VirtualXORROT24, VirtualXORROT16, VirtualXORROT63
@@ -674,7 +673,6 @@ mod virtual_muli;
 mod virtual_pow2;
 #[cfg(feature = "rv64")]
 mod virtual_pow2_w;
-#[cfg(feature = "rv64")]
 mod virtual_rev8w;
 mod virtual_rotri;
 mod virtual_shift_right_bitmask;

@@ -51,7 +51,7 @@ version = "0.3.4"
 source = "git+https://github.com/facebookexperimental/allocative?rev=85b773d85d526d068ce94724ff7a7b81203fc95e#85b773d85d526d068ce94724ff7a7b81203fc95e"
 dependencies = [
  "allocative_derive",
- "ctor",
+ "ctor 0.1.26",
 ]
 
 [[package]]
@@ -736,6 +736,16 @@ checksum = "6d2301688392eb071b0bf1a37be05c469d3cc4dbbd95df672fe28ab021e6a096"
 dependencies = [
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "ctor"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
+dependencies = [
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -1718,6 +1728,15 @@ dependencies = [
  "tracing-subscriber",
  "tracing-tracy",
  "tracy-client",
+]
+
+[[package]]
+name = "jolt-inlines-sha2"
+version = "0.1.0"
+dependencies = [
+ "ctor 0.2.9",
+ "jolt-tracer",
+ "tracing",
 ]
 
 [[package]]
@@ -2988,17 +3007,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha2"
-version = "0.10.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
-dependencies = [
- "cfg-if",
- "cpufeatures",
- "digest 0.10.7",
-]
-
-[[package]]
 name = "sha2-chain"
 version = "0.1.0"
 dependencies = [
@@ -3007,6 +3015,7 @@ dependencies = [
  "clap",
  "eyre",
  "jolt-core",
+ "jolt-inlines-sha2",
  "jolt-tracer",
  "provia-jolt-sdk",
  "provia-worker",
@@ -3022,8 +3031,8 @@ dependencies = [
 name = "sha2-chain-guest"
 version = "0.1.0"
 dependencies = [
+ "jolt-inlines-sha2",
  "provia-jolt-sdk",
- "sha2",
 ]
 
 [[package]]

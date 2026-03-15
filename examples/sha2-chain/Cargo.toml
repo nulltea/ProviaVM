@@ -7,6 +7,7 @@ edition = "2021"
 exclude = ["guest"]
 
 [dependencies]
+jolt-inlines-sha2 = { path = "../../jolt-inlines/sha2", features = ["host"] }
 provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
 guest = { package = "sha2-chain-guest", path = "./guest" }
 provia-worker = { path = "../../provia-worker" }

@@ -5,6 +5,9 @@ members = [
     "provia-coordinator",
     "jolt-core",
     "jolt-tracer",
+    "jolt-inlines/sha2",
+    "jolt-inlines/bigint",
+    "jolt-inlines/rsa",
     "mpc-net",
     "mpc-core",
 ]

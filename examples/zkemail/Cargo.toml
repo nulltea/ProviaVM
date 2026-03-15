@@ -28,7 +28,7 @@ mailparse = "0.14"
 trust-dns-resolver = "0.23"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 base64 = "0.21"
-rsa = { version = "=0.9.6" }
+jolt-inlines-rsa = { path = "../../jolt-inlines/rsa", features = ["host"] }
 slog = "2.7"
 
 # Shared types

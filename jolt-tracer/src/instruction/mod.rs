@@ -153,7 +153,6 @@ use virtual_change_divisor_w::VirtualChangeDivisorW;
 use virtual_pow2_w::VirtualPow2W;
 #[cfg(feature = "rv64")]
 use virtual_pow2i_w::VirtualPow2IW;
-#[cfg(feature = "rv64")]
 use virtual_rev8w::VirtualRev8W;
 #[cfg(feature = "rv64")]
 use virtual_rotriw::VirtualROTRIW;
@@ -325,7 +324,6 @@ pub mod virtual_change_divisor_w;
 pub mod virtual_pow2_w;
 #[cfg(feature = "rv64")]
 pub mod virtual_pow2i_w;
-#[cfg(feature = "rv64")]
 pub mod virtual_rev8w;
 #[cfg(feature = "rv64")]
 pub mod virtual_rotriw;
@@ -678,7 +676,7 @@ define_rv32im_enums! {
         VirtualAdvice, VirtualAssertEQ, VirtualAssertHalfwordAlignment, VirtualAssertWordAlignment, VirtualAssertLTE,
         VirtualAssertValidDiv0, VirtualAssertValidUnsignedRemainder, VirtualAssertMulUNoOverflow,
         VirtualChangeDivisor, VirtualLW, VirtualSW,
-        VirtualMove, VirtualMovsign, VirtualMULI, VirtualPow2, VirtualPow2I, VirtualROTRI,
+        VirtualMove, VirtualMovsign, VirtualMULI, VirtualPow2, VirtualPow2I, VirtualRev8W, VirtualROTRI,
         VirtualShiftRightBitmask, VirtualShiftRightBitmaskI,
         VirtualSRA, VirtualSRAI, VirtualSRL, VirtualSRLI,
         // XORROT (64-bit rotations only — no W-variants)
@@ -986,7 +984,6 @@ impl Instruction {
             // 0x2B is reserved for external inlines
             0b0101011 => Ok(INLINE::new(instr, address, false, compressed).into()),
             // 0x5B is reserved for I-type virtual instructions.
-            #[cfg(feature = "rv64")]
             0b1011011 => {
                 let funct3 = (instr >> 12) & 0x7;
                 match funct3 {

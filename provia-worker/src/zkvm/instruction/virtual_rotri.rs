@@ -13,7 +13,7 @@ impl<const XLEN: usize> Rep3LookupQuery<XLEN> for Rep3RISCVCycle<VirtualROTRI> {
     ) -> eyre::Result<()> {
         itertools::izip!(steps, out).for_each(|(step, out)| {
             let (l, r) = Rep3LookupQuery::<XLEN>::to_instruction_inputs(*step);
-            let n = (r.as_public() % XLEN as u64) as u32;
+            let n = (r.as_public() as u32).trailing_zeros();
             let x = l.as_binary_or_trivial(io_ctx.id);
             // Right rotation applied component-wise (bit permutation)
             let rotated =
@@ -38,7 +38,7 @@ impl<const XLEN: usize> Rep3LookupQuery<XLEN> for Rep3RISCVCycle<VirtualROTRIW> 
     ) -> eyre::Result<()> {
         itertools::izip!(steps, out).for_each(|(step, out)| {
             let (l, r) = Rep3LookupQuery::<XLEN>::to_instruction_inputs(*step);
-            let n = (r.as_public() % 32) as u32;
+            let n = (r.as_public() as u32).trailing_zeros().min(32);
             let x: Rep3RingShare<u32> = downcast(l.as_binary_or_trivial(io_ctx.id));
             // W-variant: 32-bit right rotation
             let rotated =

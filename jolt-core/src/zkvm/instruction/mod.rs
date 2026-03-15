@@ -262,7 +262,7 @@ define_rv32im_trait_impls! {
         VirtualChangeDivisor, VirtualAssertMulUNoOverflow,
         VirtualLW, VirtualSW,
         VirtualMove, VirtualMovsign, VirtualMULI, VirtualPow2,
-        VirtualPow2I, VirtualShiftRightBitmask, VirtualShiftRightBitmaskI,
+        VirtualPow2I, VirtualRev8W, VirtualShiftRightBitmask, VirtualShiftRightBitmaskI,
         VirtualROTRI,
         VirtualSRA, VirtualSRAI, VirtualSRL, VirtualSRLI,
         VirtualXORROT32, VirtualXORROT24, VirtualXORROT16, VirtualXORROT63
@@ -320,7 +320,6 @@ pub mod virtual_pow2i;
 pub mod virtual_pow2iw;
 #[cfg(feature = "rv64")]
 pub mod virtual_pow2w;
-#[cfg(feature = "rv64")]
 pub mod virtual_rev8w;
 pub mod virtual_rotri;
 #[cfg(feature = "rv64")]
