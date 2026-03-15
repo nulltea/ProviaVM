@@ -339,7 +339,7 @@ mod tests {
     use crate::zkvm::witness::CommittedPolynomial;
 
     fn test_opening(idx: usize) -> OpeningId {
-        OpeningId::committed(CommittedPolynomial::RamRa(idx), SumcheckId::RamReadWriteChecking)
+        OpeningId::Committed(CommittedPolynomial::RamRa(idx), SumcheckId::RamReadWriteChecking)
     }
 
     #[test]

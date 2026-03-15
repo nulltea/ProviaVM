@@ -22,8 +22,6 @@ prover = [
     "dory/parallel",
 ]
 minimal = ["ark-ec/std", "ark-ff/std", "ark-std/std", "ark-ff/asm", "rayon"]
-allocative_feature = ["dep:inferno"]
-rv32 = []
 rv64 = [
     "tracer/rv64",
 ]
@@ -81,7 +79,6 @@ paste.workspace = true
 dory.workspace = true
 lazy_static.workspace = true
 allocative.workspace = true
-inferno = { workspace = true, optional = true }
 num_cpus = "1.16"
 libc = "0.2"
 # jolt-platform = { workspace = true, features = ["std"] }

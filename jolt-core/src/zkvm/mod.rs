@@ -34,65 +34,15 @@ pub mod registers;
 pub mod spartan;
 pub mod witness;
 
-// Scoped CPU profiler for performance analysis. Feature-gated by "pprof".
-// Usage: let _guard = pprof_scope!("label");
-//
-// Writes pprof/label.pb on scope exit
-// View with: go tool pprof -http=:8080 pprof/label.pb
-
-// Public type for the profiling guard
-#[cfg(feature = "pprof")]
-pub struct PprofGuard {
-    guard: pprof::ProfilerGuard<'static>,
-    label: &'static str,
-}
-
-#[cfg(not(feature = "pprof"))]
 pub struct PprofGuard;
-
-#[cfg(feature = "pprof")]
-impl Drop for PprofGuard {
-    fn drop(&mut self) {
-        if let Ok(report) = self.guard.report().build() {
-            let prefix = std::env::var("PPROF_PREFIX").unwrap_or_else(|_| String::from("benchmark-runs/pprof/"));
-            let filename = format!("{}{}.pb", prefix, self.label);
-            // Extract directory from prefix for creation
-            if let Some(dir) = std::path::Path::new(&filename).parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            if let Ok(mut f) = std::fs::File::create(&filename) {
-                use pprof::protos::Message;
-                if let Ok(p) = report.pprof() {
-                    let mut buf = Vec::new();
-                    if p.encode(&mut buf).is_ok() {
-                        let _ = std::io::Write::write_all(&mut f, &buf);
-                        tracing::info!("Wrote pprof profile to {}", filename);
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[macro_export]
 macro_rules! pprof_scope {
-    ($label:expr) => {{
-        #[cfg(feature = "pprof")]
-        {
-            Some($crate::zkvm::PprofGuard {
-                guard: pprof::ProfilerGuardBuilder::default()
-                    .frequency(std::env::var("PPROF_FREQ").unwrap_or("100".to_string()).parse::<i32>().unwrap())
-                    .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-                    .build()
-                    .expect("Failed to initialize profiler"),
-                label: $label,
-            })
-        }
-        #[cfg(not(feature = "pprof"))]
+    ($label:expr) => {
         None::<$crate::zkvm::PprofGuard>
-    }};
+    };
     () => {
-        pprof_scope!("default");
+        None::<$crate::zkvm::PprofGuard>
     };
 }
 

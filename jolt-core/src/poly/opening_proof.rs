@@ -23,6 +23,8 @@ use crate::{
     utils::errors::ProofVerifyError,
     zkvm::witness::{CommittedPolynomial, VirtualPolynomial},
 };
+#[cfg(test)]
+use crate::poly::multilinear_polynomial::MultilinearPolynomial;
 
 pub type Endianness = bool;
 pub const BIG_ENDIAN: Endianness = false;

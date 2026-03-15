@@ -6,39 +6,13 @@ use crate::instruction::format::{InstructionFormat, InstructionRegisterState};
 use crate::instruction::NormalizedInstruction;
 
 #[cfg(test)]
+use super::{div::DIV, divu::DIVU, mulh::MULH, mulhsu::MULHSU, rem::REM, remu::REMU, sll::SLL, slli::SLLI, sra::SRA, srai::SRAI, srl::SRL, srli::SRLI};
+
+#[cfg(test)]
+#[cfg(feature = "rv64")]
 use super::{
-    // amoaddd::AMOADDD, amoaddw::AMOADDW, amoandd::AMOANDD,
-    // amoandw::AMOANDW, amomaxd::AMOMAXD, amomaxud::AMOMAXUD, amomaxuw::AMOMAXUW, amomaxw::AMOMAXW,
-    // amomind::AMOMIND, amominud::AMOMINUD, amominuw::AMOMINUW, amominw::AMOMINW, amoord::AMOORD,
-    // amoorw::AMOORW, amoswapd::AMOSWAPD, amoswapw::AMOSWAPW, amoxord::AMOXORD, amoxorw::AMOXORW,
-    // lb::LB, lbu::LBU, lh::LH, lhu::LHU, lw::LW, lwu::LWU,
-    // sb::SB, sh::SH, sw::SW,
-    addiw::ADDIW,
-    addw::ADDW,
-    div::DIV,
-    divu::DIVU,
-    divuw::DIVUW,
-    divw::DIVW,
-    mulh::MULH,
-    mulhsu::MULHSU,
-    mulw::MULW,
-    rem::REM,
-    remu::REMU,
-    remuw::REMUW,
-    remw::REMW,
-    sll::SLL,
-    slli::SLLI,
-    slliw::SLLIW,
-    sllw::SLLW,
-    sra::SRA,
-    srai::SRAI,
-    sraiw::SRAIW,
-    sraw::SRAW,
-    srl::SRL,
-    srli::SRLI,
-    srliw::SRLIW,
-    srlw::SRLW,
-    subw::SUBW,
+    addiw::ADDIW, addw::ADDW, divuw::DIVUW, divw::DIVW, mulw::MULW, remuw::REMUW, remw::REMW,
+    slliw::SLLIW, sllw::SLLW, sraiw::SRAIW, sraw::SRAW, srliw::SRLIW, srlw::SRLW, subw::SUBW,
 };
 
 use super::{RISCVInstruction, RISCVTrace};
@@ -67,14 +41,12 @@ macro_rules! test_inline_sequences {
 }
 
 test_inline_sequences!(
-    // NOTE: AMO instructinos panic on all cases, because `random` generates invalid
-    // memory accessses. Same with store and load instructions.
-    //
-    // AMOADDD, AMOADDW, AMOANDD, AMOANDW, AMOMAXD, AMOMAXUD, AMOMAXUW, AMOMAXW, AMOMIND,
-    // AMOMINUD, AMOMINUW, AMOMINW, AMOORD, AMOORW, AMOSWAPD, AMOSWAPW, AMOXORD, AMOXORW,
-    // LB, LBU, LH, LHU, LW, LWU, SB, SH, SW
-    ADDIW, ADDW, DIV, DIVU, DIVUW, DIVW, MULH, MULHSU, MULW, REM, REMU, REMUW, REMW, SLL, SLLI, SLLIW, SLLW, SRA, SRAI,
-    SRAIW, SRAW, SRL, SRLI, SRLIW, SRLW, SUBW,
+    DIV, DIVU, MULH, MULHSU, REM, REMU, SLL, SLLI, SRA, SRAI, SRL, SRLI,
+);
+
+#[cfg(feature = "rv64")]
+test_inline_sequences!(
+    ADDIW, ADDW, DIVUW, DIVW, MULW, REMUW, REMW, SLLIW, SLLW, SRAIW, SRAW, SRLIW, SRLW, SUBW,
 );
 
 fn test_rng() -> StdRng {

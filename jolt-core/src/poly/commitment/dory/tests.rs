@@ -90,7 +90,7 @@ mod tests {
         let (prover_setup, verifier_setup) = setup_dory_for_test(num_vars);
 
         let mut rng = thread_rng();
-        let coeffs: Vec<bool> = (0..num_coeffs).map(|_| rng.gen::<bool>()).collect();
+        let coeffs: Vec<u8> = (0..num_coeffs).map(|_| rng.gen::<bool>() as u8).collect();
         let poly: MultilinearPolynomial<Fr> = coeffs.into();
 
         test_commitment_scheme_with_poly(poly, "BoolScalars", &prover_setup, &verifier_setup);
@@ -465,7 +465,7 @@ mod tests {
         let commitments_and_hints: Vec<_> =
             polys.iter().map(|poly| DoryCommitmentScheme::commit(poly, &prover_setup)).collect();
 
-        let commitments: Vec<_> = commitments_and_hints.iter().map(|(c, _)| *c).collect();
+        let commitments: Vec<_> = commitments_and_hints.iter().map(|(c, _)| c.clone()).collect();
         let hints: Vec<_> = commitments_and_hints.into_iter().map(|(_, h)| h).collect();
 
         // Step 3: Generate 5 random coefficients
@@ -544,7 +544,7 @@ mod tests {
         // Step 2: Use batch_commit
         let commitments_and_hints = DoryCommitmentScheme::batch_commit(&polys, &prover_setup);
 
-        let commitments: Vec<_> = commitments_and_hints.iter().map(|(c, _)| *c).collect();
+        let commitments: Vec<_> = commitments_and_hints.iter().map(|(c, _)| c.clone()).collect();
         let hints: Vec<_> = commitments_and_hints.into_iter().map(|(_, h)| h).collect();
 
         // Step 3: Generate random coefficients (like gamma powers in opening_proof.rs)
@@ -848,12 +848,12 @@ mod tests {
                 one_hot_rlc_coeff,
                 std::sync::Arc::new(MultilinearPolynomial::OneHot(one_hot_poly.clone())),
             )],
-            streaming_context: None,
         };
 
         let left_vec: Vec<Fr> = (0..num_rows).map(|_| Fr::rand(&mut rng)).collect();
+        let wrapped_left_vec: Vec<JoltFieldWrapper<Fr>> = left_vec.iter().map(|f| JoltFieldWrapper(*f)).collect();
 
-        let vmp_result = rlc_poly.vector_matrix_product(&left_vec);
+        let vmp_result = rlc_poly.vector_matrix_product(&wrapped_left_vec);
 
         let mut expected = vec![Fr::zero(); num_columns];
         let cycles_per_row = DoryGlobals::address_major_cycles_per_row();
@@ -885,7 +885,7 @@ mod tests {
 
         // Compare results
         for (col, (actual, exp)) in vmp_result.iter().zip(expected.iter()).enumerate() {
-            assert_eq!(*actual, *exp, "VMP mismatch at column {col}: actual={actual:?}, expected={exp:?}");
+            assert_eq!(actual.0, *exp, "VMP mismatch at column {col}: actual={actual:?}, expected={exp:?}");
         }
     }
 }
