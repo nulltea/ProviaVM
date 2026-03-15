@@ -32,7 +32,7 @@ use crate::field::JoltField;
 use crate::poly::multilinear_polynomial::MultilinearPolynomial;
 use crate::zkvm::instruction::CircuitFlags;
 use ark_ff::biginteger::S160;
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 
 pub use super::ops::{Term, LC};
 

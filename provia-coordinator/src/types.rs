@@ -1,6 +1,6 @@
 //! Shared types for coordinator↔worker communication.
 
-use jolt_common::jolt_device::MemoryLayout;
+use jolt_core::common::jolt_device::MemoryLayout;
 use serde::{Deserialize, Serialize};
 use tracer::instruction::Instruction;
 

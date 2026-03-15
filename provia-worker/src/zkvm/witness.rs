@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 
-use jolt_common::constants::{ArithmeticWideInt, LookupIndexInt, XlenInt, XLEN};
+use jolt_core::common::constants::{ArithmeticWideInt, LookupIndexInt, XlenInt, XLEN};
 use jolt_core::field::JoltField;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::poly::multilinear_polynomial::MultilinearPolynomial;

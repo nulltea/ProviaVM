@@ -42,7 +42,7 @@ fn main() {
     let polys_f = Rep3MultilinearPolynomial::generate_shares_from_coeffs(&coeffs_fr, &mut rng);
 
     // Generate ring-share polynomials (arith + bin, one per party)
-    use jolt_common::constants::{ArithmeticWideInt, XlenInt};
+    use jolt_core::common::constants::{ArithmeticWideInt, XlenInt};
     let all_arith: Vec<_> =
         values.iter().map(|&v| rep3_ring::share_ring_element(RingElement(v as ArithmeticWideInt), &mut rng)).collect();
     let all_bin: Vec<_> =

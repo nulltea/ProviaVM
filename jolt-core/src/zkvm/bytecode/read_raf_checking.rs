@@ -25,7 +25,7 @@ use crate::{
     },
 };
 use allocative::Allocative;
-use common::constants::{REGISTER_COUNT, XLEN};
+use crate::common::constants::{REGISTER_COUNT, XLEN};
 use rayon::prelude::*;
 use strum::{EnumCount, IntoEnumIterator};
 use tracer::instruction::NormalizedInstruction;
@@ -219,7 +219,7 @@ impl<F: JoltField> ReadRafSumcheck<F> {
                 let imm_i128 = if flags[CircuitFlags::Branch] {
                     operands.imm as i32 as i128
                 } else {
-                    operands.imm as common::constants::XlenInt as i128
+                    operands.imm as crate::common::constants::XlenInt as i128
                 };
                 #[cfg(feature = "rv64")]
                 let imm_i128 = operands.imm;

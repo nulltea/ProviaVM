@@ -1,5 +1,5 @@
 use allocative::Allocative;
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 use num_traits::Zero;
 use rayon::prelude::*;
 use std::{cell::RefCell, rc::Rc, sync::Arc};

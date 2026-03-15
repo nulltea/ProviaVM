@@ -1,4 +1,4 @@
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 
 pub mod booleanity;
 pub mod hamming_weight;

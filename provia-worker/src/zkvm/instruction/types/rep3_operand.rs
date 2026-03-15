@@ -1,4 +1,4 @@
-use jolt_common::constants::{ArithmeticWideInt, XlenInt};
+use jolt_core::common::constants::{ArithmeticWideInt, XlenInt};
 use mpc_core::protocols::rep3::PartyID;
 use mpc_core::protocols::rep3_ring::casts::downcast;
 use mpc_core::protocols::rep3_ring::ring::int_ring::IntRing2k;

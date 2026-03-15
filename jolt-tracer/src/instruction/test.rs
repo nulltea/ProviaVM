@@ -45,7 +45,7 @@ use super::{RISCVInstruction, RISCVTrace};
 
 use crate::emulator::terminal::DummyTerminal;
 
-use common::constants::RISCV_REGISTER_COUNT;
+use crate::common::constants::RISCV_REGISTER_COUNT;
 
 use rand::{rngs::StdRng, SeedableRng};
 

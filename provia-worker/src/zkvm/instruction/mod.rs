@@ -5,8 +5,8 @@ use mpc_core::protocols::rep3_ring::casts::upcast_many_from_binary;
 pub use types::rep3_operand::{Rep3Operand, PUBLIC_ZERO};
 pub use types::rep3_ram::{Rep3RAMAccess, Rep3RAMRead, Rep3RAMWrite, REP3_RAM_NOOP};
 
-use jolt_common::constants::XLEN;
-pub use jolt_common::constants::{ArithmeticWideInt, LookupIndexInt, XlenInt};
+use jolt_core::common::constants::XLEN;
+pub use jolt_core::common::constants::{ArithmeticWideInt, LookupIndexInt, XlenInt};
 use jolt_core::zkvm::instruction::InstructionLookup;
 use jolt_core::zkvm::lookup_table::LookupTables;
 use mpc_core::protocols::rep3::network::{IoContext, IoContextPool, Rep3Network, Rep3NetworkWorker};

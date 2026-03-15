@@ -1,7 +1,7 @@
 use super::program::Program;
 use crate::poly::commitment::dory::DoryCommitmentScheme;
 use crate::zkvm::{Jolt, JoltProverPreprocessing, JoltRV64IMAC};
-use common::jolt_device::MemoryLayout;
+use crate::common::jolt_device::MemoryLayout;
 
 #[allow(clippy::type_complexity)]
 #[cfg(feature = "prover")]

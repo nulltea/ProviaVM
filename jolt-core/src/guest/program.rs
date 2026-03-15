@@ -1,5 +1,5 @@
-use common::constants::RAM_START_ADDRESS;
-use common::jolt_device::{JoltDevice, MemoryConfig};
+use crate::common::constants::RAM_START_ADDRESS;
+use crate::common::jolt_device::{JoltDevice, MemoryConfig};
 use std::path::PathBuf;
 use tracer::emulator::memory::Memory;
 use tracer::instruction::{Cycle, Instruction};

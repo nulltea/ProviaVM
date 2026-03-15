@@ -20,7 +20,6 @@ mpc-core = { path = "../mpc-core" }
 mpc-net = { path = "../mpc-net", features = ["tls"] }
 
 jolt-core.workspace = true
-jolt-common.workspace = true
 tracer = { workspace = true }
 
 ark-bn254.workspace = true
@@ -57,7 +56,7 @@ aws-nitro-enclaves-nsm-api = { version = "0.4", optional = true }
 
 [features]
 default = ["zk", "fewer-phases"]
-rv64 = ["jolt-core/rv64", "jolt-common/rv64", "tracer/rv64"]
+rv64 = ["jolt-core/rv64", "tracer/rv64"]
 aws_nitro = ["dep:vsock", "dep:aws-nitro-enclaves-nsm-api"]
 test-utils = ["jolt-core/test-utils"]
 zk = ["jolt-core/zk"]

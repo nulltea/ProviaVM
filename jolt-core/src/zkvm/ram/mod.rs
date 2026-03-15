@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use common::{
+use crate::common::{
     constants::{BYTES_PER_INSTRUCTION, RAM_WORD_SIZE},
     jolt_device::MemoryLayout,
 };
@@ -150,7 +150,7 @@ pub fn remap_address(address: u64, memory_layout: &MemoryLayout) -> Option<u64> 
     }
 
     if address >= memory_layout.trusted_advice_start {
-        Some((address - memory_layout.trusted_advice_start) / common::constants::RAM_WORD_SIZE + 1)
+        Some((address - memory_layout.trusted_advice_start) / crate::common::constants::RAM_WORD_SIZE + 1)
     } else {
         panic!("Unexpected address {address}")
     }

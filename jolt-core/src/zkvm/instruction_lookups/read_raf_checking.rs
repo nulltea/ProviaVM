@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 
 use strum::{EnumCount, IntoEnumIterator};
 

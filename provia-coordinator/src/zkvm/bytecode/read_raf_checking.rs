@@ -1,4 +1,4 @@
-use jolt_common::constants::REGISTER_COUNT;
+use jolt_core::common::constants::REGISTER_COUNT;
 use jolt_core::poly::eq_poly::EqPolynomial;
 use jolt_core::poly::opening_proof::{OpeningPoint, SumcheckId, BIG_ENDIAN};
 use jolt_core::transcripts::Transcript;

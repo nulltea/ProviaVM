@@ -1,4 +1,4 @@
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 use tracer::instruction::virtual_rev8w::rev8w;
 
 use crate::{

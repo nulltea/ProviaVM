@@ -21,7 +21,7 @@ use crate::{
     zkvm::witness::CommittedPolynomial,
 };
 use allocative::Allocative;
-use common::constants::REGISTER_COUNT;
+use crate::common::constants::REGISTER_COUNT;
 use fixedbitset::FixedBitSet;
 use num_traits::Zero;
 use rayon::prelude::*;

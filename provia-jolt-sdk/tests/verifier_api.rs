@@ -11,7 +11,7 @@ mod tests {
             JoltVerifierPreprocessing::read_from_target_dir("tests/fixtures/").unwrap();
         let proof = RV64IMACJoltProof::from_file("tests/fixtures/fib_proof.bin").unwrap();
         let device =
-            common::jolt_device::JoltDevice::from_file("tests/fixtures/fib_io_device.bin").unwrap();
+            jolt_core::common::jolt_device::JoltDevice::from_file("tests/fixtures/fib_io_device.bin").unwrap();
         let start = std::time::Instant::now();
         println!("Verifying proof...");
         let verifier = JoltRV64IMAC::verify(&preprocessing, proof, device, None, None);

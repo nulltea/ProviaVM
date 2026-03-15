@@ -23,9 +23,9 @@ syn = { version = "1.0.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0.79"
 
-common = { path = "../../jolt-common", package = "jolt-common", features = ["std"] }
+tracer = { path = "../../jolt-tracer", package = "jolt-tracer", features = ["std"] }
 
-# These are needed to enable derive macros for jolt-common when compiled
+# These are needed to enable derive macros for tracer::common types when compiled
 # outside the main workspace (e.g., during guest builds)
 serde = { version = "1.0", features = ["derive"] }
 ark-serialize = { version = "0.5.0", features = ["derive"] }

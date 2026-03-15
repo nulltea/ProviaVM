@@ -1,7 +1,7 @@
 use std::ops::{Index, IndexMut};
 
 use allocative::Allocative;
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 use strum::EnumCount;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 use tracer::instruction::{Cycle, Instruction};

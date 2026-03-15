@@ -22,7 +22,6 @@ host = [
     "jolt-core/default",
     "random",
     "dep:tracer",
-    "dep:common",
     "dep:ark-ec",
     "dep:ark-bn254",
     "dep:provia-worker",
@@ -41,7 +40,6 @@ guest-std = [
 guest-verifier = [
     "guest-std",
     "dep:tracer",
-    "dep:common",
     "dep:ark-bn254",
     "jolt-core/minimal",
 ]
@@ -56,7 +54,6 @@ ark-bn254 = { version = "0.5.0", default-features = false, optional = true }
 
 provia-jolt-sdk-macros = { path = "./macros" }
 # Host-only dependencies
-common = { path = "../jolt-common", package = "jolt-common", default-features = false, optional = true }
 jolt-core = { path = "../jolt-core", default-features = false, optional = true }
 tracer = { path = "../jolt-tracer", package = "jolt-tracer", default-features = false, optional = true }
 rand = { version = "0.8.5", default-features = false, features = ["std_rng"], optional = true }

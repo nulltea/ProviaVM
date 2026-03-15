@@ -31,7 +31,7 @@ use self::cpu::{Cpu, Xlen};
 use self::elf_analyzer::ElfAnalyzer;
 use self::terminal::Terminal;
 
-use common::constants::{EMULATOR_MEMORY_CAPACITY, RAM_START_ADDRESS};
+use crate::common::constants::{EMULATOR_MEMORY_CAPACITY, RAM_START_ADDRESS};
 use std::io::Write;
 use std::path::Path;
 

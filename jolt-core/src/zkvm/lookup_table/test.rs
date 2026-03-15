@@ -7,7 +7,7 @@ use crate::{
         PrefixSuffixDecomposition,
     },
 };
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 use num::Integer;
 use rand::prelude::*;
 use strum::{EnumCount, IntoEnumIterator};

@@ -2,12 +2,12 @@ use crate::field::JoltField;
 use crate::guest;
 use crate::host::analyze::ProgramSummary;
 use crate::host::{Program, DEFAULT_TARGET_DIR, LINKER_SCRIPT_TEMPLATE};
-use common::constants::{
+use crate::common::constants::{
     DEFAULT_MAX_INPUT_SIZE, DEFAULT_MAX_OUTPUT_SIZE, DEFAULT_MAX_TRUSTED_ADVICE_SIZE,
     DEFAULT_MAX_UNTRUSTED_ADVICE_SIZE, DEFAULT_MEMORY_SIZE, DEFAULT_STACK_SIZE, EMULATOR_MEMORY_CAPACITY,
     RAM_START_ADDRESS, STACK_CANARY_SIZE,
 };
-use common::jolt_device::{JoltDevice, MemoryConfig};
+use crate::common::jolt_device::{JoltDevice, MemoryConfig};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;

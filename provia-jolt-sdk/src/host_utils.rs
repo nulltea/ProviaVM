@@ -5,7 +5,7 @@ pub use jolt_core::host;
 #[cfg(feature = "host")]
 pub use jolt_core::zkvm::dag::proof_serialization::serialize_and_print_size;
 
-pub use common::jolt_device::{JoltDevice, MemoryConfig, MemoryLayout};
+pub use jolt_core::common::jolt_device::{JoltDevice, MemoryConfig, MemoryLayout};
 pub use jolt_core::ark_bn254::Fr as F;
 pub use jolt_core::curve::Bn254Curve;
 pub use jolt_core::field::JoltField;

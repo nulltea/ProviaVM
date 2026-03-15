@@ -1,6 +1,6 @@
 use crate::utils::inline_helpers::InstrAssembler;
 use crate::utils::virtual_registers::VirtualRegisterAllocator;
-use common::constants::XlenInt;
+use crate::common::constants::XlenInt;
 use serde::{Deserialize, Serialize};
 
 use crate::{

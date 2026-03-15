@@ -25,7 +25,6 @@ minimal = ["ark-ec/std", "ark-ff/std", "ark-std/std", "ark-ff/asm", "rayon"]
 allocative_feature = ["dep:inferno"]
 rv32 = []
 rv64 = [
-    "common/rv64",
     "tracer/rv64",
 ]
 challenge-254-bit = []
@@ -71,7 +70,6 @@ reqwest = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 eyre.workspace = true
 indicatif = { workspace = true, optional = true }
-common = { workspace = true }
 tracer = { workspace = true, default-features = false, features = ["std"] }
 bincode.workspace = true
 tokio = { workspace = true, optional = true }

@@ -1,4 +1,4 @@
-use jolt_common::constants::REGISTER_COUNT;
+use jolt_core::common::constants::REGISTER_COUNT;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 #[cfg(feature = "zk")]
 use jolt_core::poly::opening_proof::OpeningId;

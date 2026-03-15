@@ -1,4 +1,4 @@
-use jolt_common::constants::{RAM_START_ADDRESS, RAM_WORD_SIZE};
+use jolt_core::common::constants::{RAM_START_ADDRESS, RAM_WORD_SIZE};
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::poly::eq_poly::EqPolynomial;
 use jolt_core::poly::multilinear_polynomial::{

@@ -647,7 +647,7 @@ impl JoltDAG {
         // Reconstruct the advice opening point from the RamVal sumcheck point.
         // The serialized proof only stores the claim (scalar), not the opening
         // point, so the verifier must recompute it.
-        let ws = common::constants::RAM_WORD_SIZE as usize;
+        let ws = crate::common::constants::RAM_WORD_SIZE as usize;
         let max_size = state_manager.program_io.memory_layout.max_untrusted_advice_size as usize / ws;
         let log_advice_size = max_size.next_power_of_two().log_2();
         let total_memory_vars = state_manager.ram_K.log_2();

@@ -10,7 +10,7 @@ use crate::zkvm::JoltSharedPreprocessing;
 
 use crate::field::JoltField;
 use ark_ff::biginteger::{S128, S64};
-use common::constants::{XlenInt, XLEN};
+use crate::common::constants::{XlenInt, XLEN};
 use rayon::prelude::*;
 use std::fmt::Debug;
 use tracer::instruction::Cycle;

@@ -1,5 +1,5 @@
 use crate::zkvm::suffixes::suffix_edabit_ring_bits;
-use jolt_common::constants::XLEN;
+use jolt_core::common::constants::XLEN;
 use jolt_core::zkvm::instruction_lookups::{D, LOG_M, PHASES};
 use jolt_core::zkvm::lookup_table::suffixes::Suffixes;
 use jolt_core::zkvm::lookup_table::LookupTables;

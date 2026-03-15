@@ -1,4 +1,4 @@
-use jolt_common::constants::{ArithmeticWideInt, XLEN};
+use jolt_core::common::constants::{ArithmeticWideInt, XLEN};
 use jolt_core::field::JoltField;
 use mpc_core::protocols::rep3::network::{IoContextPool, Rep3NetworkWorker};
 use mpc_core::protocols::rep3::{PartyID, Rep3PrimeFieldShare, arithmetic::sub_shared_by_public};

@@ -5,7 +5,6 @@ members = [
     "provia-coordinator",
     "jolt-core",
     "jolt-tracer",
-    "jolt-common",
     "mpc-net",
     "mpc-core",
 ]
@@ -129,14 +128,12 @@ target-lexicon = "0.12.14"
 reqwest = { version = "0.12.3", features = ["json", "blocking"] }
 indicatif = "0.17.8"
 tokio = { version = "1.38.0" }
-common = { path = "./jolt-common", package = "jolt-common", default-features = false }
 fnv = { version = "1.0.7", default-features = false }
 object = { version = "0.36.7", features = ["build_core", "elf"], default-features = false }
 addr2line = "0.25.1"
 
 jolt-core = { path = "./jolt-core" }
 tracer = { path = "./jolt-tracer", package = "jolt-tracer", default-features = false }
-jolt-common = { path = "./jolt-common", package = "jolt-common" }
 # jolt = { path = "/Users/timofey/repos/examples/jolt/jolt-sdk", package = "jolt-sdk" }
 
 [patch.crates-io]

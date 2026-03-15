@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{emulator::cpu::Cpu, instruction::NormalizedInstruction};
-use common::constants::XlenInt;
+use crate::common::constants::XlenInt;
 
 use super::{format::format_j::FormatJ, RISCVInstruction, RISCVTrace};
 

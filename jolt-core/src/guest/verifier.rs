@@ -1,7 +1,7 @@
 use crate::guest::program::Program;
 use crate::poly::commitment::dory::DoryCommitmentScheme;
 use crate::zkvm::{Jolt, JoltRV64IMAC, JoltVerifierPreprocessing};
-use common::jolt_device::MemoryLayout;
+use crate::common::jolt_device::MemoryLayout;
 
 pub fn preprocess(
     guest: &Program,

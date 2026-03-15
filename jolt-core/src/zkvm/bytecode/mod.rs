@@ -1,7 +1,7 @@
 use crate::utils::math::Math;
 use crate::zkvm::witness::{compute_d_parameter, DTH_ROOT_OF_K};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use common::constants::{ALIGNMENT_FACTOR_BYTECODE, RAM_START_ADDRESS};
+use crate::common::constants::{ALIGNMENT_FACTOR_BYTECODE, RAM_START_ADDRESS};
 use tracer::instruction::{Cycle, Instruction};
 
 pub mod booleanity;

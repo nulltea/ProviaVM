@@ -1831,20 +1831,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jolt-common"
-version = "0.2.0"
-dependencies = [
- "ark-serialize",
- "derive_more",
- "serde",
- "serde_json",
- "strum",
- "strum_macros",
- "syn 1.0.109",
- "tracing",
-]
-
-[[package]]
 name = "jolt-core"
 version = "0.1.0"
 dependencies = [
@@ -1869,7 +1855,6 @@ dependencies = [
  "indicatif",
  "inferno",
  "itertools 0.12.1",
- "jolt-common",
  "jolt-optimizations",
  "jolt-tracer",
  "lazy_static",
@@ -1933,7 +1918,6 @@ dependencies = [
  "derive_more",
  "fnv",
  "itertools 0.12.1",
- "jolt-common",
  "lazy_static",
  "object 0.36.7",
  "paste",
@@ -1943,6 +1927,7 @@ dependencies = [
  "serde_json",
  "strum",
  "strum_macros",
+ "syn 1.0.109",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2679,7 +2664,6 @@ dependencies = [
  "dory-pcs",
  "eyre",
  "itertools 0.12.1",
- "jolt-common",
  "jolt-core",
  "jolt-tracer",
  "libc",
@@ -2722,7 +2706,6 @@ dependencies = [
  "enum_dispatch",
  "eyre",
  "itertools 0.12.1",
- "jolt-common",
  "jolt-core",
  "jolt-tracer",
  "libc",

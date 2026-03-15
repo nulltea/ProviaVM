@@ -1,4 +1,4 @@
-use common::constants::{RAM_START_ADDRESS, RAM_WORD_SIZE};
+use crate::common::constants::{RAM_START_ADDRESS, RAM_WORD_SIZE};
 use tracer::JoltDevice;
 
 use crate::{

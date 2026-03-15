@@ -28,13 +28,13 @@ path = "src/main.rs"
 [features]
 default = ["std"]
 rv32 = []
-rv64 = ["common/rv64"]
+rv64 = []
 std = [
-    "common/std",
     "fnv/std",
     "object/std",
     "tracing/std",
     "postcard/use-std",
+    "syn/full",
 ]
 test-utils = ["dep:rand"]
 
@@ -55,10 +55,10 @@ paste.workspace = true
 itertools.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
-common = { workspace = true }
 postcard.workspace = true
 lazy_static.workspace = true
 addr2line.workspace = true
+syn = { version = "1.0.0", optional = true }
 
 [dev-dependencies]
 rand.workspace = true

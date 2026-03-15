@@ -59,8 +59,8 @@ use crate::instruction::RISCVInstruction;
 use crate::instruction::RISCVTrace;
 use crate::utils::virtual_registers::VirtualRegisterAllocator;
 
-use common::constants::RISCV_REGISTER_COUNT;
-use common::constants::VIRTUAL_INSTRUCTION_RESERVED_REGISTER_COUNT;
+use crate::common::constants::RISCV_REGISTER_COUNT;
+use crate::common::constants::VIRTUAL_INSTRUCTION_RESERVED_REGISTER_COUNT;
 /// Operand that can be either an immediate or a register.
 #[derive(Clone, Copy, Debug)]
 pub enum Value {

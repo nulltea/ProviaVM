@@ -41,7 +41,7 @@ where
 {
     fn preprocess(
         bytecode: Vec<tracer::instruction::Instruction>,
-        memory_layout: jolt_common::jolt_device::MemoryLayout,
+        memory_layout: jolt_core::common::jolt_device::MemoryLayout,
         memory_init: Vec<(u64, u8)>,
         max_trace_length: usize,
     ) -> JoltProverPreprocessing<F, PCS>;
@@ -65,7 +65,7 @@ impl Rep3JoltWorker<Fr, DoryCommitmentScheme, Blake2bTranscript> for JoltArch {
     #[tracing::instrument(skip_all, name = "jolt_preprocess")]
     fn preprocess(
         bytecode: Vec<tracer::instruction::Instruction>,
-        memory_layout: jolt_common::jolt_device::MemoryLayout,
+        memory_layout: jolt_core::common::jolt_device::MemoryLayout,
         memory_init: Vec<(u64, u8)>,
         max_trace_length: usize,
     ) -> JoltProverPreprocessing<Fr, DoryCommitmentScheme> {

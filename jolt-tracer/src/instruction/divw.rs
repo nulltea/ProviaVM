@@ -8,7 +8,7 @@ use crate::{
     instruction::virtual_assert_valid_unsigned_remainder::VirtualAssertValidUnsignedRemainder,
     utils::inline_helpers::InstrAssembler,
 };
-use common::constants::XlenInt;
+use crate::common::constants::XlenInt;
 use serde::{Deserialize, Serialize};
 
 use crate::{

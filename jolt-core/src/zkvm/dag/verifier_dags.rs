@@ -17,7 +17,7 @@ use crate::zkvm::r1cs::inputs::{ALL_R1CS_INPUTS, COMMITTED_R1CS_INPUTS};
 use crate::zkvm::r1cs::key::UniformSpartanKey;
 use crate::zkvm::witness::{CommittedPolynomial, VirtualPolynomial};
 
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 
 // ---------------------------------------------------------------------------
 // SpartanDag
@@ -651,7 +651,7 @@ impl BytecodeDag {
             acc.get_virtual_polynomial_opening(VirtualPolynomial::RdWa, SumcheckId::RegistersReadWriteChecking).0.r;
         drop(acc);
         let eq_r_register_2 =
-            EqPolynomial::<F>::evals(&r_register_2[..(common::constants::REGISTER_COUNT as usize).log_2()]);
+            EqPolynomial::<F>::evals(&r_register_2[..(crate::common::constants::REGISTER_COUNT as usize).log_2()]);
         let val_2 = BytecodeReadRaf::<F>::compute_val_2_from_bytecode(bytecode, &gamma_powers_2, &eq_r_register_2);
 
         // Val3 needs eq_r_register from val evaluation
@@ -660,7 +660,7 @@ impl BytecodeDag {
             acc.get_virtual_polynomial_opening(VirtualPolynomial::RdWa, SumcheckId::RegistersValEvaluation).0.r;
         drop(acc);
         let eq_r_register_3 =
-            EqPolynomial::<F>::evals(&r_register_3[..(common::constants::REGISTER_COUNT as usize).log_2()]);
+            EqPolynomial::<F>::evals(&r_register_3[..(crate::common::constants::REGISTER_COUNT as usize).log_2()]);
         let val_3 = BytecodeReadRaf::<F>::compute_val_3_from_bytecode(bytecode, &gamma_powers_3, &eq_r_register_3);
 
         // r_cycles from accumulator
@@ -668,9 +668,9 @@ impl BytecodeDag {
         let _r_cycle_1 = acc.get_virtual_polynomial_opening(VirtualPolynomial::Imm, SumcheckId::SpartanOuter).0.r;
         let r_2 =
             acc.get_virtual_polynomial_opening(VirtualPolynomial::Rs1Ra, SumcheckId::RegistersReadWriteChecking).0;
-        let (_, _r_cycle_2) = r_2.split_at_r((common::constants::REGISTER_COUNT as usize).log_2());
+        let (_, _r_cycle_2) = r_2.split_at_r((crate::common::constants::REGISTER_COUNT as usize).log_2());
         let r_3 = acc.get_virtual_polynomial_opening(VirtualPolynomial::RdWa, SumcheckId::RegistersValEvaluation).0;
-        let (_, _r_cycle_3) = r_3.split_at_r((common::constants::REGISTER_COUNT as usize).log_2());
+        let (_, _r_cycle_3) = r_3.split_at_r((crate::common::constants::REGISTER_COUNT as usize).log_2());
         drop(acc);
 
         let val_polys = [val_1, val_2, val_3];

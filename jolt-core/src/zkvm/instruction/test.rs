@@ -1,5 +1,5 @@
 use crate::{field::JoltField, zkvm::instruction::LookupQuery};
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 use rand::prelude::*;
 use tracer::instruction::{RISCVCycle, RISCVInstruction};
 

@@ -23,7 +23,7 @@ use crate::{
     },
 };
 use allocative::Allocative;
-use common::constants::REGISTER_COUNT;
+use crate::common::constants::REGISTER_COUNT;
 use rayon::prelude::*;
 
 #[derive(Allocative)]

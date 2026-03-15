@@ -382,7 +382,7 @@ pub struct UnmapRamAddressPolynomial<F: JoltField> {
 
 impl<F: JoltField> UnmapRamAddressPolynomial<F> {
     pub fn new(num_vars: usize, start_address: u64) -> Self {
-        let word_size = common::constants::RAM_WORD_SIZE;
+        let word_size = crate::common::constants::RAM_WORD_SIZE;
         assert!(start_address > word_size);
         UnmapRamAddressPolynomial { start_address, word_size, int_poly: IdentityPolynomial::new(num_vars) }
     }

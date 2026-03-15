@@ -684,7 +684,7 @@ impl Rep3JoltDag {
         use jolt_core::utils::math::Math;
         use jolt_core::zkvm::witness::VirtualPolynomial;
 
-        let ws = jolt_common::constants::RAM_WORD_SIZE as usize;
+        let ws = jolt_core::common::constants::RAM_WORD_SIZE as usize;
         let max_size = state.program_io.memory_layout.max_untrusted_advice_size as usize / ws;
         let log_advice_size = max_size.next_power_of_two().log_2();
         let total_memory_vars = state.ram_K.log_2();

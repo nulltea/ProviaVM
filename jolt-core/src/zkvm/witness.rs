@@ -1,7 +1,7 @@
 #![allow(static_mut_refs)]
 
 use allocative::Allocative;
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use rayon::prelude::*;

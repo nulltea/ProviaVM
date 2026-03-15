@@ -133,7 +133,7 @@ fn share_cycle(
                 [op, op, op]
             } else {
                 let s = rep3_ring::share_ring_element_binary(
-                    rep3_ring::ring::ring_impl::RingElement(v as jolt_common::constants::XlenInt),
+                    rep3_ring::ring::ring_impl::RingElement(v as jolt_core::common::constants::XlenInt),
                     rng,
                 );
                 [Rep3Operand::from_binary(s[0]), Rep3Operand::from_binary(s[1]), Rep3Operand::from_binary(s[2])]

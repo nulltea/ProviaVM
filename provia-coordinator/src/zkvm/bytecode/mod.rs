@@ -104,7 +104,7 @@ impl Rep3BytecodeDag {
             _gamma_powers_2[0] * rdwa_claim_2 + _gamma_powers_2[1] * rs1ra_claim_2 + _gamma_powers_2[2] * rs2ra_claim_2;
 
         // Stage3 gamma_powers
-        use jolt_common::constants::XLEN;
+        use jolt_core::common::constants::XLEN;
         use jolt_core::zkvm::lookup_table::LookupTables;
         use strum::EnumCount;
         let _gamma_powers_3 = jolt_core::zkvm::bytecode::read_raf_checking::get_gamma_powers::<F>(
@@ -155,7 +155,7 @@ impl Rep3BytecodeDag {
             .0
             .r;
         let eq_r_register_2 = jolt_core::poly::eq_poly::EqPolynomial::<F>::evals(
-            &r_register_2[..(jolt_common::constants::REGISTER_COUNT as usize).log_2()],
+            &r_register_2[..(jolt_core::common::constants::REGISTER_COUNT as usize).log_2()],
         );
         let val_2 = BytecodeReadRaf::<F>::compute_val_2_from_bytecode(bytecode, &_gamma_powers_2, &eq_r_register_2);
 
@@ -166,12 +166,12 @@ impl Rep3BytecodeDag {
             .0
             .r;
         let eq_r_register_3 = jolt_core::poly::eq_poly::EqPolynomial::<F>::evals(
-            &r_register_3[..(jolt_common::constants::REGISTER_COUNT as usize).log_2()],
+            &r_register_3[..(jolt_core::common::constants::REGISTER_COUNT as usize).log_2()],
         );
         let val_3 = BytecodeReadRaf::<F>::compute_val_3_from_bytecode(bytecode, &_gamma_powers_3, &eq_r_register_3);
 
         // Compute r_cycles from accumulator (matching vanilla get_r_cycle_verif).
-        use jolt_common::constants::REGISTER_COUNT;
+        use jolt_core::common::constants::REGISTER_COUNT;
         let r_cycle_1 =
             sm.accumulator.get_virtual_polynomial_opening(VirtualPolynomial::Imm, SumcheckId::SpartanOuter).0.r;
         let r_2 = sm

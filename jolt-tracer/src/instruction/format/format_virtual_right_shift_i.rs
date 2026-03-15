@@ -51,7 +51,7 @@ impl InstructionFormat for FormatVirtualRightShiftI {
 
     #[cfg(any(feature = "test-utils", test))]
     fn random(rng: &mut rand::rngs::StdRng) -> Self {
-        use common::constants::RISCV_REGISTER_COUNT;
+        use crate::common::constants::RISCV_REGISTER_COUNT;
         use rand::RngCore;
         let shift = rng.next_u32() % 64;
         let ones: u64 = (1 << shift) - 1;

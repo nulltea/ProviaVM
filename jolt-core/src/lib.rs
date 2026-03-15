@@ -13,6 +13,7 @@ pub mod guest;
 #[cfg(feature = "host")]
 pub mod host;
 
+pub use tracer::common;
 pub mod curve;
 pub mod field;
 pub mod msm;

@@ -11,7 +11,7 @@ use tracing::{error, info};
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
 
-use common::{self, constants::RAM_START_ADDRESS, jolt_device::MemoryConfig};
+use crate::common::{constants::RAM_START_ADDRESS, jolt_device::MemoryConfig};
 use emulator::{
     cpu::{self, Xlen},
     default_terminal::DefaultTerminal,
@@ -21,11 +21,12 @@ use emulator::{
 use instruction::{Cycle, Instruction};
 use object::{Object, ObjectSection, SectionKind};
 
+pub mod common;
 pub mod emulator;
 pub mod instruction;
 pub mod utils;
 
-pub use common::jolt_device::JoltDevice;
+pub use crate::common::jolt_device::JoltDevice;
 pub use instruction::inline::{list_registered_inlines, register_inline};
 
 use crate::{emulator::memory::Memory, instruction::uncompress_instruction};
@@ -409,7 +410,7 @@ pub fn decode(elf: &[u8]) -> (Vec<Instruction>, Vec<(u64, u8)>, u64, Xlen) {
 }
 
 fn get_xlen() -> Xlen {
-    match common::constants::XLEN {
+    match crate::common::constants::XLEN {
         32 => cpu::Xlen::Bit32,
         64 => cpu::Xlen::Bit64,
         _ => panic!("Emulator only supports 32 / 64 bit registers."),
@@ -785,7 +786,7 @@ mod test {
     /// if the traces from checkpoints match the overall execution trace.
     /// The test is based on the muldiv benchmark.
     fn test_trace() {
-        use common::jolt_device::MemoryConfig;
+        use crate::common::jolt_device::MemoryConfig;
 
         let expected_trace_length = 483;
         let elf = ELF_CONTENTS.to_vec();

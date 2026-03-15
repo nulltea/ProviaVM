@@ -362,7 +362,7 @@ pub fn precompute_dapoint_q_columns(
     setup: &<DoryCommitmentScheme as CommitmentScheme>::ProverSetup,
     num_columns: usize,
 ) -> (Vec<G1Projective>, Vec<G1Projective>, Vec<G1Projective>, Vec<G1Projective>) {
-    use jolt_common::constants::XLEN;
+    use jolt_core::common::constants::XLEN;
 
     let g1_proj = &setup_g1_projective(setup)[..num_columns];
 
@@ -432,7 +432,7 @@ fn compute_row_commitment_shares_ring<N: Rep3Network>(
     dapoints: &DaPointsBatch<G1Projective>,
 ) -> eyre::Result<Vec<G1Projective>> {
     use crate::zkvm::instruction::types::rep3_operand::Rep3Operand;
-    use jolt_common::constants::{XlenInt, XLEN};
+    use jolt_core::common::constants::{XlenInt, XLEN};
     use mpc_core::protocols::rep3_ring::casts::downcast;
 
     let sigma = DoryGlobals::get_num_columns().log_2();
@@ -592,7 +592,7 @@ fn compute_row_commitment_shares_iring<N: Rep3Network>(
     dapoints: &DaPointsBatch<G1Projective>,
 ) -> eyre::Result<Vec<G1Projective>> {
     use crate::zkvm::instruction::types::rep3_operand::Rep3Operand;
-    use jolt_common::constants::XLEN;
+    use jolt_core::common::constants::XLEN;
 
     let sigma = DoryGlobals::get_num_columns().log_2();
     let num_columns = 1usize << sigma;
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn dory_u64_scalars_commit_correct() {
-        use jolt_common::constants::{ArithmeticWideInt, XlenInt};
+        use jolt_core::common::constants::{ArithmeticWideInt, XlenInt};
 
         let mut rng = ChaCha12Rng::seed_from_u64(0);
 
@@ -841,7 +841,7 @@ mod tests {
     #[test]
     fn dory_u64_scalars_mixed_public_shared_commit_correct() {
         use crate::zkvm::instruction::types::rep3_operand::Rep3Operand;
-        use jolt_common::constants::{ArithmeticWideInt, XlenInt};
+        use jolt_core::common::constants::{ArithmeticWideInt, XlenInt};
         use mpc_core::protocols::rep3_ring::ring::ring_impl::RingElement;
 
         let mut rng = ChaCha12Rng::seed_from_u64(0);

@@ -244,7 +244,7 @@ impl Rep3JoltDagWorker {
         // for opening proof evaluation. Ring variants cannot evaluate in the field.
         #[cfg(feature = "ring-msm")]
         {
-            use jolt_common::constants::ArithmeticWideInt;
+            use jolt_core::common::constants::ArithmeticWideInt;
 
             let n = state.prover_state.cycle_witness.len();
 
@@ -346,7 +346,7 @@ impl Rep3JoltDagWorker {
             return Ok(());
         }
 
-        let ws = jolt_common::constants::RAM_WORD_SIZE as usize;
+        let ws = jolt_core::common::constants::RAM_WORD_SIZE as usize;
         let max_size = state.program_io.memory_layout.max_untrusted_advice_size as usize / ws;
         eyre::ensure!(
             max_size <= padded_trace_length,

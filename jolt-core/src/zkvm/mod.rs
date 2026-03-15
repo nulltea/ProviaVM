@@ -20,7 +20,7 @@ use crate::{
 };
 use ark_bn254::Fr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use common::jolt_device::MemoryLayout;
+use crate::common::jolt_device::MemoryLayout;
 use tracer::{instruction::Instruction, JoltDevice};
 
 pub mod bytecode;

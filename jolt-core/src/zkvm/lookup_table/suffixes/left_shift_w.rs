@@ -1,4 +1,4 @@
-use common::constants::XLEN;
+use crate::common::constants::XLEN;
 
 use crate::utils::lookup_bits::LookupBits;
 
