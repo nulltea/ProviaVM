@@ -5,7 +5,7 @@ use mpc_core::protocols::rep3_ring::edabits::PreprocessingPool;
 pub use crate::subprotocols::sumcheck::{
     BatchedSumcheckWorkerInstance, PublicSumcheckInstanceWorker, Rep3SumcheckInstanceWorker,
 };
-use crate::zkvm::dag::state_manager::StateManagerWorker;
+use crate::zkvm::state_manager::StateManagerWorker;
 use jolt_core::field::JoltField;
 
 // ---------------------------------------------------------------------------

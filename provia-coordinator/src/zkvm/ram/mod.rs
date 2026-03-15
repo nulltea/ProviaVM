@@ -7,8 +7,8 @@ use jolt_core::utils::math::Math;
 use jolt_core::zkvm::ram::remap_address;
 use jolt_core::zkvm::witness::{compute_d_parameter, VirtualPolynomial, DTH_ROOT_OF_K};
 
-use crate::zkvm::dag::stage::{BatchedSumcheckInstance, SumcheckStagesCoordinator};
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::stage::{BatchedSumcheckInstance, SumcheckStagesCoordinator};
+use crate::zkvm::state_manager::StateManager;
 use jolt_core::field::JoltField;
 
 use self::output_check::{Rep3OutputSumcheck, Rep3ValFinalSumcheck};

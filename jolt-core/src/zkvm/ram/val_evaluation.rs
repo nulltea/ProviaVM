@@ -18,7 +18,7 @@ use crate::{
     transcripts::Transcript,
     utils::math::Math,
     zkvm::{
-        dag::state_manager::StateManager,
+        state_manager::StateManager,
         witness::{CommittedPolynomial, VirtualPolynomial},
     },
 };

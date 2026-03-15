@@ -7,7 +7,7 @@ use jolt_core::zkvm::witness::{CommittedPolynomial, VirtualPolynomial};
 use crate::poly::opening_proof::Rep3OpeningAccumulator;
 use jolt_core::field::JoltField;
 
-use crate::zkvm::dag::stage::Rep3SumcheckInstance;
+use crate::zkvm::stage::Rep3SumcheckInstance;
 
 const DEGREE: usize = 3;
 

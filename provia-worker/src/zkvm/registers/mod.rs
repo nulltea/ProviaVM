@@ -2,8 +2,8 @@ use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use mpc_core::protocols::rep3::network::{IoContextPool, Rep3NetworkWorker};
 use mpc_core::protocols::rep3_ring::edabits::PreprocessingPool;
 
-use crate::zkvm::dag::stage::{BatchedSumcheckWorkerInstance, SumcheckStagesWorker};
-use crate::zkvm::dag::state_manager::StateManagerWorker;
+use crate::zkvm::stage::{BatchedSumcheckWorkerInstance, SumcheckStagesWorker};
+use crate::zkvm::state_manager::StateManagerWorker;
 use jolt_core::field::JoltField;
 
 use self::read_write_checking::Rep3RegistersReadWriteCheckingWorker;

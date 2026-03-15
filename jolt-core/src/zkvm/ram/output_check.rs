@@ -20,7 +20,7 @@ use crate::{
     transcripts::Transcript,
     utils::{expanding_table::ExpandingTable, math::Math},
     zkvm::{
-        dag::state_manager::StateManager,
+        state_manager::StateManager,
         ram::remap_address,
         witness::{CommittedPolynomial, VirtualPolynomial},
     },

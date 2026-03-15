@@ -19,8 +19,8 @@ use crate::utils::types::Rep3Value;
 use jolt_core::field::JoltField;
 use mpc_core::protocols::rep3::network::{IoContextPool, Rep3NetworkWorker};
 
-use crate::zkvm::dag::stage::Rep3SumcheckInstanceWorker;
-use crate::zkvm::dag::state_manager::StateManagerWorker;
+use crate::zkvm::stage::Rep3SumcheckInstanceWorker;
+use crate::zkvm::state_manager::StateManagerWorker;
 
 const DEGREE: usize = 2;
 

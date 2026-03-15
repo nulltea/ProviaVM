@@ -1,20 +1,22 @@
 pub mod bytecode;
-pub mod dag;
-pub mod inc_biased_b2a;
 pub mod instruction;
 pub mod instruction_lookups;
+pub mod preprocessing;
 pub mod r1cs;
 pub mod ram;
 pub mod registers;
 pub mod spartan;
+pub mod stage;
+pub mod state_manager;
 pub mod suffixes;
 pub mod witness;
+pub mod worker;
 
 use crate::host::memory::Rep3Memory;
 use crate::poly::commitment::Rep3CommitmentScheme;
-use crate::zkvm::dag::state_manager::StateManagerWorker;
-use crate::zkvm::dag::worker::Rep3JoltDagWorker;
 use crate::zkvm::instruction::Rep3Cycle;
+use crate::zkvm::state_manager::StateManagerWorker;
+use crate::zkvm::worker::Rep3JoltDagWorker;
 use jolt_core::ark_bn254::Fr;
 use jolt_core::field::JoltField;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;

@@ -3,7 +3,7 @@ use crate::poly::one_hot_polynomial::Rep3OneHotPolynomial;
 use crate::poly::opening_proof::Rep3OpeningAccumulatorWorker;
 use crate::utils::fwht::{fwht_in_place, fwht_rep3_in_place, shift_eq_table_with_mask, unmask_histogram_public};
 use crate::utils::types::{Either, Rep3Value};
-use crate::zkvm::dag::stage::Rep3SumcheckInstanceWorker;
+use crate::zkvm::stage::Rep3SumcheckInstanceWorker;
 use jolt_core::common::constants::{LookupIndexInt, XLEN};
 use jolt_core::field::JoltField;
 use jolt_core::poly::eq_poly::EqPolynomial;

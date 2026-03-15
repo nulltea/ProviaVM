@@ -12,7 +12,7 @@ use crate::poly::opening_proof::Rep3OpeningAccumulator;
 use jolt_core::field::JoltField;
 
 use crate::subprotocols::sumcheck::Rep3SumcheckInstance;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::state_manager::StateManager;
 
 // ---------------------------------------------------------------------------
 // Coordinator

@@ -1,3 +1,5 @@
+pub mod types;
+
 use std::array;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
@@ -15,15 +17,17 @@ use jolt_core::zkvm::lookup_table::LookupTables;
 use jolt_core::zkvm::ram::remap_address;
 use jolt_core::zkvm::witness::{CommittedPolynomial, DTH_ROOT_OF_K};
 use jolt_core::zkvm::{instruction_lookups, JoltProverPreprocessing};
+use mpc_core::preprocessing::edabits::ForkedB2aScratch;
 use mpc_core::protocols::rep3::network::{IoContext, IoContextPool, Rep3NetworkWorker};
 use mpc_core::protocols::rep3::PartyID;
-use mpc_core::protocols::rep3::{arithmetic::promote_to_trivial_share, Rep3PrimeFieldShare};
-use mpc_core::protocols::rep3_ring::casts;
-use mpc_core::protocols::rep3_ring::edabits::{
-    EdaBitsBatchScratch, EdaBitsRangeView, PreprocessingPool,
+use mpc_core::protocols::rep3::{
+    arithmetic::{promote_to_trivial_share, sub_shared_by_public},
+    Rep3PrimeFieldShare,
 };
+use mpc_core::protocols::rep3_ring::edabits::{EdaBitsBatchScratch, EdaBitsRangeView, PreprocessingPool};
 use mpc_core::protocols::rep3_ring::ring::ring_impl::RingElement;
 use mpc_core::protocols::rep3_ring::Rep3RingShare;
+use mpc_core::protocols::rep3_ring::{casts, conversion};
 use rand::distributions::{Distribution, Standard};
 use rayon::prelude::*;
 use tracing::{info_span, trace_span};
@@ -36,10 +40,8 @@ use crate::poly::Rep3MultilinearPolynomial;
 use crate::utils::future_ring::{FutureRep3Ring, Rep3RingFutureExt};
 use crate::utils::memory::maybe_purge_jemalloc;
 use crate::utils::types::Either;
-#[cfg(not(feature = "ring-msm"))]
-use crate::zkvm::inc_biased_b2a::biased_inc_b2a_many;
-use crate::zkvm::dag::state_manager::StateManagerWorker;
 use crate::zkvm::instruction::{populate_operands_casts, Rep3LookupQuery, Rep3Operand};
+use crate::zkvm::state_manager::StateManagerWorker;
 
 use super::instruction::{Rep3Cycle, Rep3RAMAccess};
 
@@ -410,7 +412,7 @@ where
     let n = trace.len();
 
     // Meta (AoS) + public stage-specific columns
-    let mut meta: Vec<crate::zkvm::dag::witness::CycleMeta> = Vec::with_capacity(n);
+    let mut meta: Vec<crate::zkvm::witness::types::CycleMeta> = Vec::with_capacity(n);
     let mut unexpanded_pc: Vec<u64> = Vec::with_capacity(n);
     let mut flags_bits: Vec<u32> = Vec::with_capacity(n);
 
@@ -434,7 +436,7 @@ where
 
     // Per-cycle result struct for parallel metadata extraction.
     struct CycleResult<F: JoltField> {
-        meta: crate::zkvm::dag::witness::CycleMeta,
+        meta: crate::zkvm::witness::types::CycleMeta,
         pc: u64,
         imm: i128,
         flags: u32,
@@ -461,31 +463,30 @@ where
     }
 
     // Helper to classify an operand for parallel processing.
-    let classify_op =
-        |target: SparseFieldTarget,
-         op: &Rep3Operand,
-         ops: &mut [Option<(SparseFieldTarget, FieldOp<F>)>; 7],
-         ops_len: &mut usize| match op {
-            Rep3Operand::Public(v) => {
-                push_field_op(
-                    ops,
-                    ops_len,
-                    target,
-                    FieldOp::WriteTrivial(promote_to_trivial_share(party_id, F::from_u64(*v as u64))),
-                );
-            }
-            Rep3Operand::Shared { public: Some(v), .. } => {
-                push_field_op(
-                    ops,
-                    ops_len,
-                    target,
-                    FieldOp::WriteTrivial(promote_to_trivial_share(party_id, F::from_u64(*v))),
-                );
-            }
-            Rep3Operand::Shared { .. } => {
-                push_field_op(ops, ops_len, target, FieldOp::NeedsCast(op.as_binary()));
-            }
-        };
+    let classify_op = |target: SparseFieldTarget,
+                       op: &Rep3Operand,
+                       ops: &mut [Option<(SparseFieldTarget, FieldOp<F>)>; 7],
+                       ops_len: &mut usize| match op {
+        Rep3Operand::Public(v) => {
+            push_field_op(
+                ops,
+                ops_len,
+                target,
+                FieldOp::WriteTrivial(promote_to_trivial_share(party_id, F::from_u64(*v as u64))),
+            );
+        }
+        Rep3Operand::Shared { public: Some(v), .. } => {
+            push_field_op(
+                ops,
+                ops_len,
+                target,
+                FieldOp::WriteTrivial(promote_to_trivial_share(party_id, F::from_u64(*v))),
+            );
+        }
+        Rep3Operand::Shared { .. } => {
+            push_field_op(ops, ops_len, target, FieldOp::NeedsCast(op.as_binary()));
+        }
+    };
 
     let _span = trace_span!("r2f_operands_sparse", n = n).entered();
     let slab_rows: usize =
@@ -583,7 +584,7 @@ where
                 }
 
                 CycleResult {
-                    meta: crate::zkvm::dag::witness::CycleMeta {
+                    meta: crate::zkvm::witness::types::CycleMeta {
                         pc_index,
                         ram_addr,
                         rd_addr: rd_i,
@@ -653,7 +654,7 @@ where
         ram_read_value,
         ram_write_value,
     );
-    cw.update_stage3(crate::zkvm::dag::witness::Stage3Update {
+    cw.update_stage3(crate::zkvm::witness::types::Stage3Update {
         pc_sumcheck: Some((unexpanded_pc, flags_bits)),
         read_raf_tables_and_masks: Some((lookup_tables, is_interleaved_operands, right_operand_public_mask)),
         read_raf_lookup_indices: None,
@@ -669,11 +670,11 @@ where
         left.push(l);
         right.push(r);
     }
-    cw.update_stage3(crate::zkvm::dag::witness::Stage3Update {
+    cw.update_stage3(crate::zkvm::witness::types::Stage3Update {
         pc_sumcheck: None,
         read_raf_tables_and_masks: None,
         read_raf_lookup_indices: None,
-        product_inputs: Some(crate::zkvm::dag::witness::ProductInputs { left, right }),
+        product_inputs: Some(crate::zkvm::witness::types::ProductInputs { left, right }),
     });
 
     #[cfg(debug_assertions)]
@@ -897,7 +898,7 @@ where
         .collect();
 
     // Persist lookup indices for ReadRaf suffix evaluation
-    state.prover_state.cycle_witness.update_stage3(crate::zkvm::dag::witness::Stage3Update {
+    state.prover_state.cycle_witness.update_stage3(crate::zkvm::witness::types::Stage3Update {
         pc_sumcheck: None,
         read_raf_tables_and_masks: None,
         read_raf_lookup_indices: Some(either_indices),
@@ -1024,8 +1025,14 @@ where
                 {
                     // Non-ring-msm: A2B → r2f_b2a → sub_public(2^XLEN), chunked to limit RSS.
                     let _span = info_span!("rd_inc_biased_b2a", n, chunk = inc_b2a_chunk).entered();
-                    let inc =
-                        biased_inc_b2a_many(&biased_arith, io_ctx, preproc, inc_b2a_chunk, inc_b2a_max_forks, party_id)?;
+                    let inc = biased_inc_b2a_many(
+                        &biased_arith,
+                        io_ctx,
+                        preproc,
+                        inc_b2a_chunk,
+                        inc_b2a_max_forks,
+                        party_id,
+                    )?;
                     drop(_span);
                     let dense = Rep3DensePolynomial::new(inc);
                     state.prover_state.cycle_witness.set_stage2_incs(Some(dense.clone()), None);
@@ -1052,8 +1059,14 @@ where
                 #[cfg(not(feature = "ring-msm"))]
                 {
                     let _span = info_span!("ram_inc_biased_b2a", n, chunk = inc_b2a_chunk).entered();
-                    let inc =
-                        biased_inc_b2a_many(&biased_arith, io_ctx, preproc, inc_b2a_chunk, inc_b2a_max_forks, party_id)?;
+                    let inc = biased_inc_b2a_many(
+                        &biased_arith,
+                        io_ctx,
+                        preproc,
+                        inc_b2a_chunk,
+                        inc_b2a_max_forks,
+                        party_id,
+                    )?;
                     drop(_span);
                     let dense = Rep3DensePolynomial::new(inc);
                     state.prover_state.cycle_witness.set_stage2_incs(None, Some(dense.clone()));
@@ -1097,4 +1110,59 @@ where
     maybe_purge_jemalloc();
 
     Ok(results)
+}
+
+pub(crate) fn biased_inc_b2a_many<F, N>(
+    biased_arith: &[Rep3RingShare<ArithmeticWideInt>],
+    io_ctx: &mut IoContextPool<N>,
+    preproc: &mut PreprocessingPool<F>,
+    chunk_size: usize,
+    max_forks: usize,
+    party_id: PartyID,
+) -> eyre::Result<Vec<Rep3PrimeFieldShare<F>>>
+where
+    F: JoltField,
+    N: Rep3NetworkWorker,
+    Standard: Distribution<ArithmeticWideInt>,
+{
+    let n = biased_arith.len();
+    let bias_f = F::from_u64(1u64 << XLEN);
+    let mut inc = Vec::with_capacity(n);
+
+    for off in (0..n).step_by(chunk_size.max(1)) {
+        let end = (off + chunk_size.max(1)).min(n);
+        let chunk = &biased_arith[off..end];
+        let biased_bin = conversion::a2b_many(chunk, io_ctx.main())?;
+        let biased_field: Vec<Rep3PrimeFieldShare<F>> = if max_forks <= 1 {
+            let batch_eda = preproc.take_edabits::<ArithmeticWideInt>(chunk.len())?;
+            casts::r2f_b2a_preproc_many::<ArithmeticWideInt, F, _>(&biased_bin, &batch_eda, io_ctx.main())?
+        } else {
+            let fork_chunk_size = biased_bin.len().div_ceil(max_forks);
+            let mut session = preproc.begin_forkable_session();
+            let reserved = session.reserve_edabits::<ArithmeticWideInt>(chunk.len())?;
+            let mut scratch: Vec<ForkedB2aScratch<ArithmeticWideInt, F>> =
+                (0..max_forks).map(|_| ForkedB2aScratch::default()).collect();
+            let biased_field = io_ctx.par_chunks_preproc(
+                &biased_bin,
+                Some(fork_chunk_size),
+                &mut scratch,
+                |start, len| reserved.range_view(start, len),
+                |_, xs, view: EdaBitsRangeView<'_, ArithmeticWideInt, F>, ctx, scratch| {
+                    view.fill_into_par_safe(&mut scratch.batch)?;
+                    casts::r2f_b2a_preproc_many_into::<ArithmeticWideInt, F, _>(
+                        xs,
+                        scratch.batch.as_ref(),
+                        ctx,
+                        &mut scratch.cast,
+                    )?;
+                    Ok::<_, eyre::Report>(scratch.cast.take_output())
+                },
+            )?;
+            session.finalize_success();
+            biased_field
+        };
+        inc.extend(biased_field.into_iter().map(|share| sub_shared_by_public(share, bias_f, party_id)));
+    }
+
+    Ok(inc)
 }

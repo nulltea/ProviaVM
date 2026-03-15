@@ -203,7 +203,7 @@ impl<F: JoltField> Rep3InstructionRaSumcheckWorker<F> {
     }
 }
 
-impl<F: JoltField, N: Rep3NetworkWorker> crate::zkvm::dag::stage::Rep3SumcheckInstanceWorker<F, N>
+impl<F: JoltField, N: Rep3NetworkWorker> crate::zkvm::stage::Rep3SumcheckInstanceWorker<F, N>
     for Rep3InstructionRaSumcheckWorker<F>
 {
     fn degree(&self) -> usize {

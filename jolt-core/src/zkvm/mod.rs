@@ -14,7 +14,7 @@ use crate::{
     transcripts::Transcript,
     utils::{errors::ProofVerifyError, math::Math},
     zkvm::{
-        bytecode::BytecodePreprocessing, dag::jolt_dag::JoltDAG, dag::proof_serialization::JoltProof,
+        bytecode::BytecodePreprocessing, verifier::JoltDAG, proof_serialization::JoltProof,
         ram::RAMPreprocessing, witness::DTH_ROOT_OF_K,
     },
 };
@@ -24,7 +24,9 @@ use crate::common::jolt_device::MemoryLayout;
 use tracer::{instruction::Instruction, JoltDevice};
 
 pub mod bytecode;
-pub mod dag;
+pub mod proof_serialization;
+pub mod state_manager;
+pub mod verifier;
 pub mod instruction;
 pub mod instruction_lookups;
 pub mod lookup_table;

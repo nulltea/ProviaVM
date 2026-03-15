@@ -1,8 +1,8 @@
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::transcripts::Transcript;
 
-use crate::zkvm::dag::stage::{BatchedSumcheckInstance, SumcheckStagesCoordinator};
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::stage::{BatchedSumcheckInstance, SumcheckStagesCoordinator};
+use crate::zkvm::state_manager::StateManager;
 use jolt_core::field::JoltField;
 
 use self::read_write_checking::Rep3RegistersReadWriteChecking;

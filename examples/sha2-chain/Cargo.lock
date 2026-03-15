@@ -560,93 +560,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "co-jolt-coordinator"
-version = "0.1.0"
-dependencies = [
- "ark-bn254",
- "ark-ec",
- "ark-ff",
- "ark-serialize",
- "ark-std",
- "bincode",
- "clap",
- "dory-pcs",
- "eyre",
- "itertools 0.12.1",
- "jolt-common",
- "jolt-core",
- "jolt-tracer",
- "libc",
- "mpc-core",
- "mpc-net",
- "num-traits",
- "num_cpus",
- "rand 0.8.5",
- "rayon",
- "rcgen",
- "rustls",
- "serde",
- "strum",
- "toml 0.8.23",
- "tracing",
- "tracing-chrome",
- "tracing-forest",
- "tracing-subscriber",
- "tracing-tracy",
- "tracy-client",
-]
-
-[[package]]
-name = "co-jolt2"
-version = "0.1.0"
-dependencies = [
- "allocative",
- "ark-bn254",
- "ark-ec",
- "ark-ff",
- "ark-poly 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-serialize",
- "ark-std",
- "bincode",
- "clap",
- "co-jolt-coordinator",
- "color-eyre",
- "dory-pcs",
- "enum_dispatch",
- "eyre",
- "itertools 0.12.1",
- "jolt-common",
- "jolt-core",
- "jolt-tracer",
- "libc",
- "mpc-core",
- "mpc-net",
- "num-bigint",
- "num-traits",
- "num_cpus",
- "once_cell",
- "paste",
- "postcard",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "rayon",
- "rustls",
- "serde",
- "serde_json",
- "strum",
- "strum_macros",
- "tikv-jemallocator",
- "tokio",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "tracing-chrome",
- "tracing-forest",
- "tracing-subscriber",
- "tracing-tracy",
- "tracy-client",
-]
-
-[[package]]
 name = "cobs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1750,20 +1663,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jolt-common"
-version = "0.2.0"
-dependencies = [
- "ark-serialize",
- "derive_more",
- "serde",
- "serde_json",
- "strum",
- "strum_macros",
- "syn 1.0.109",
- "tracing",
-]
-
-[[package]]
 name = "jolt-core"
 version = "0.1.0"
 dependencies = [
@@ -1787,7 +1686,6 @@ dependencies = [
  "fixedbitset",
  "indicatif",
  "itertools 0.12.1",
- "jolt-common",
  "jolt-optimizations",
  "jolt-tracer",
  "lazy_static",
@@ -1841,40 +1739,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jolt-sdk"
-version = "0.1.0"
-dependencies = [
- "ark-bn254",
- "ark-ec",
- "bincode",
- "co-jolt2",
- "eyre",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "jolt-common",
- "jolt-core",
- "jolt-sdk-macros",
- "jolt-tracer",
- "postcard",
- "rand 0.8.5",
- "rustls",
- "serde",
-]
-
-[[package]]
-name = "jolt-sdk-macros"
-version = "0.1.0"
-dependencies = [
- "ark-serialize",
- "ark-serialize-derive 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "jolt-common",
- "proc-macro2",
- "quote",
- "serde",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "jolt-tracer"
 version = "0.2.0"
 dependencies = [
@@ -1884,7 +1748,6 @@ dependencies = [
  "derive_more",
  "fnv",
  "itertools 0.12.1",
- "jolt-common",
  "lazy_static",
  "object 0.36.7",
  "paste",
@@ -1893,6 +1756,7 @@ dependencies = [
  "serde_json",
  "strum",
  "strum_macros",
+ "syn 1.0.109",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2469,6 +2333,124 @@ dependencies = [
 ]
 
 [[package]]
+name = "provia-coordinator"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ec",
+ "ark-ff",
+ "ark-serialize",
+ "ark-std",
+ "bincode",
+ "clap",
+ "dory-pcs",
+ "eyre",
+ "itertools 0.12.1",
+ "jolt-core",
+ "jolt-tracer",
+ "libc",
+ "mpc-core",
+ "mpc-net",
+ "num-traits",
+ "num_cpus",
+ "rand 0.8.5",
+ "rayon",
+ "rcgen",
+ "rustls",
+ "serde",
+ "strum",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-chrome",
+ "tracing-forest",
+ "tracing-subscriber",
+ "tracing-tracy",
+ "tracy-client",
+]
+
+[[package]]
+name = "provia-jolt-sdk"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ec",
+ "bincode",
+ "eyre",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "jolt-core",
+ "jolt-tracer",
+ "postcard",
+ "provia-jolt-sdk-macros",
+ "provia-worker",
+ "rand 0.8.5",
+ "rustls",
+ "serde",
+]
+
+[[package]]
+name = "provia-jolt-sdk-macros"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize",
+ "ark-serialize-derive 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "jolt-tracer",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "provia-worker"
+version = "0.1.0"
+dependencies = [
+ "allocative",
+ "ark-bn254",
+ "ark-ec",
+ "ark-ff",
+ "ark-poly 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ark-serialize",
+ "ark-std",
+ "bincode",
+ "clap",
+ "color-eyre",
+ "dory-pcs",
+ "enum_dispatch",
+ "eyre",
+ "itertools 0.12.1",
+ "jolt-core",
+ "jolt-tracer",
+ "libc",
+ "mpc-core",
+ "mpc-net",
+ "num-bigint",
+ "num-traits",
+ "num_cpus",
+ "once_cell",
+ "paste",
+ "postcard",
+ "provia-coordinator",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "rustls",
+ "serde",
+ "serde_json",
+ "strum",
+ "strum_macros",
+ "tikv-jemallocator",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-chrome",
+ "tracing-forest",
+ "tracing-subscriber",
+ "tracing-tracy",
+ "tracy-client",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3023,11 +3005,11 @@ dependencies = [
  "ark-bn254",
  "ark-serialize",
  "clap",
- "co-jolt2",
  "eyre",
  "jolt-core",
- "jolt-sdk",
  "jolt-tracer",
+ "provia-jolt-sdk",
+ "provia-worker",
  "serde",
  "sha2-chain-guest",
  "toml 0.8.23",
@@ -3040,7 +3022,7 @@ dependencies = [
 name = "sha2-chain-guest"
 version = "0.1.0"
 dependencies = [
- "jolt-sdk",
+ "provia-jolt-sdk",
  "sha2",
 ]
 

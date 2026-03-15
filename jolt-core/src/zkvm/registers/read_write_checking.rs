@@ -5,7 +5,7 @@ use crate::poly::opening_proof::{OpeningPoint, SumcheckId, BIG_ENDIAN, LITTLE_EN
 use crate::poly::split_eq_poly::GruenSplitEqPolynomial;
 #[cfg(feature = "zk")]
 use crate::subprotocols::blindfold::{InputClaimConstraint, OutputClaimConstraint, ProductTerm, ValueSource};
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::state_manager::StateManager;
 use crate::zkvm::witness::VirtualPolynomial;
 use crate::{
     field::{JoltField, OptimizedMul},

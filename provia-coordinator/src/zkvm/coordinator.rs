@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::poly::commitment::Rep3CommitmentScheme;
 use crate::subprotocols::sumcheck::{BatchedSumcheckInstance, HybridBatchedSumcheck};
-use crate::zkvm::dag::stage::{Rep3JoltDagStages, SumcheckStagesCoordinator};
-use crate::zkvm::dag::state_manager::{ProofData, ProofKeys, StateManager};
+use crate::zkvm::stage::{Rep3JoltDagStages, SumcheckStagesCoordinator};
+use crate::zkvm::state_manager::{ProofData, ProofKeys, StateManager};
 use crate::zkvm::spartan::Rep3SpartanDag;
 use jolt_core::curve::Bn254Curve;
 use jolt_core::field::JoltField;
@@ -20,7 +20,7 @@ use jolt_core::subprotocols::blindfold::{
     RoundWitness, StageConfig, StageWitness, ValueSource, VerifierR1CSBuilder, ZkStageData,
 };
 use jolt_core::transcripts::Transcript;
-use jolt_core::zkvm::dag::proof_serialization::{Claims, JoltProof};
+use jolt_core::zkvm::proof_serialization::{Claims, JoltProof};
 use jolt_core::zkvm::instruction_lookups::D as LOOKUP_D;
 use jolt_core::zkvm::witness::{compute_d_parameter, AllCommittedPolynomials, CommittedPolynomial, DTH_ROOT_OF_K};
 use mpc_core::protocols::rep3::network::Rep3NetworkCoordinator;
