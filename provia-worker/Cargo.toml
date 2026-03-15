@@ -73,6 +73,9 @@ provia-coordinator = { path = "../provia-coordinator" }
 jolt-inlines-sha2 = { path = "../jolt-inlines/sha2", features = ["host"] }
 jolt-inlines-bigint = { path = "../jolt-inlines/bigint", features = ["host"] }
 jolt-inlines-rsa = { path = "../jolt-inlines/rsa", features = ["host"] }
+zkemail-core = { path = "../examples/zkemail/core" }
+rsa = { version = "=0.9.6" }
+sha2 = { version = "0.10", features = ["oid"] }
 rcgen = "0.13"
 
 [build-dependencies]

@@ -1126,7 +1126,7 @@ where
     Standard: Distribution<ArithmeticWideInt>,
 {
     let n = biased_arith.len();
-    let bias_f = F::from_u64(1u64 << XLEN);
+    let bias_f = F::from_u128(1u128 << XLEN);
     let mut inc = Vec::with_capacity(n);
 
     for off in (0..n).step_by(chunk_size.max(1)) {

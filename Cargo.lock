@@ -2759,9 +2759,11 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rayon",
  "rcgen",
+ "rsa",
  "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "strum",
  "strum_macros",
  "tikv-jemalloc-ctl",
@@ -2774,6 +2776,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing-tracy",
  "tracy-client",
+ "zkemail-core",
 ]
 
 [[package]]
@@ -4962,6 +4965,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "zkemail-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

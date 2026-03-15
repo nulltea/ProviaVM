@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "rv64")]
 use crate::instruction::ld::LD;
+#[cfg(feature = "rv64")]
+use crate::instruction::{
+    addi::ADDI, andi::ANDI, slli::SLLI, srl::SRL,
+    virtual_assert_word_alignment::VirtualAssertWordAlignment,
+};
 use crate::{
     declare_riscv_instr,
     emulator::cpu::{Cpu, Xlen},

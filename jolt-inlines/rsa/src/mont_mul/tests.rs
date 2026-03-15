@@ -127,10 +127,10 @@ fn test_trace_montgomery() {
     // Expected from exec
     let expected = reference_montgomery(&x, &y, &m, k);
 
-    // Context layout: z (LIMBS_2048) + m (LIMBS_2048) + k (1) + zz_hi (LIMBS_2048)
+    // Context layout: z (LIMBS_2048) + m (LIMBS_2048) + k (1) + zz_hi (LIMBS_2048) + carry (1)
     let x_bytes = LIMBS_2048 * LIMB_BYTES;
     let y_bytes = x_bytes;
-    let ctx_bytes = x_bytes * 3 + LIMB_BYTES;
+    let ctx_bytes = x_bytes * 3 + LIMB_BYTES * 2; // +1 limb for k, +1 limb for carry scratch
 
     let layout = InlineMemoryLayout::two_inputs(x_bytes, y_bytes, ctx_bytes);
     #[cfg(feature = "rv64")]
@@ -150,8 +150,8 @@ fn test_trace_montgomery() {
     #[cfg(feature = "rv64")]
     harness.load_input2_64(&y);
 
-    // Build context as flat limb array: [z_zeros, m, k, zz_hi_zeros]
-    let ctx_limbs = LIMBS_2048 + LIMBS_2048 + 1 + LIMBS_2048;
+    // Build context as flat limb array: [z_zeros, m, k, zz_hi_zeros, carry_zero]
+    let ctx_limbs = LIMBS_2048 + LIMBS_2048 + 1 + LIMBS_2048 + 1;
     let mut ctx_data = vec![0 as Limb; ctx_limbs];
     ctx_data[LIMBS_2048..2 * LIMBS_2048].copy_from_slice(&m);
     ctx_data[2 * LIMBS_2048] = k;
@@ -161,12 +161,31 @@ fn test_trace_montgomery() {
     #[cfg(feature = "rv64")]
     harness.load_state64(&ctx_data);
 
-    let instr = InlineTestHarness::create_default_instruction(
-        crate::INLINE_OPCODE,
-        crate::MONT_MUL_2048_FUNCT3,
-        crate::MONT_MUL_2048_FUNCT7,
-    );
-    harness.execute_inline(instr);
+    // rv64: single inline; rv32: two-phase split
+    #[cfg(feature = "rv64")]
+    {
+        let instr = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_FUNCT3,
+            crate::MONT_MUL_2048_FUNCT7,
+        );
+        harness.execute_inline(instr);
+    }
+    #[cfg(not(feature = "rv64"))]
+    {
+        let instr_p1 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P1_FUNCT3,
+            crate::MONT_MUL_2048_P1_FUNCT7,
+        );
+        harness.execute_inline(instr_p1);
+        let instr_p2 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P2_FUNCT3,
+            crate::MONT_MUL_2048_P2_FUNCT7,
+        );
+        harness.execute_inline(instr_p2);
+    }
 
     #[cfg(not(feature = "rv64"))]
     let result_vec = harness.read_output32(LIMBS_2048);

@@ -33,14 +33,36 @@ pub const LIMB_BYTES: usize = 4;
 
 // Inline opcode constants
 pub const INLINE_OPCODE: u32 = 0x0B;
-pub const MONT_MUL_2048_FUNCT3: u32 = 0x01;
-pub const MONT_MUL_2048_FUNCT7: u32 = 0x00;
-pub const MONT_MUL_2048_NAME: &str = "MONT_MUL_2048_INLINE";
+
+// rv64: single inline (fits u16)
+#[cfg(feature = "rv64")]
+pub const MONT_MUL_2048_FUNCT3: u32 = 0x00;
+#[cfg(feature = "rv64")]
+pub const MONT_MUL_2048_FUNCT7: u32 = 0x02;
+#[cfg(feature = "rv64")]
+pub const MONT_MUL_2048_NAME: &str = "MONT_MUL_2048";
+
+// rv32: two-phase split (each half < 65535 virtual instructions)
+#[cfg(not(feature = "rv64"))]
+pub const MONT_MUL_2048_P1_FUNCT3: u32 = 0x00;
+#[cfg(not(feature = "rv64"))]
+pub const MONT_MUL_2048_P1_FUNCT7: u32 = 0x02;
+#[cfg(not(feature = "rv64"))]
+pub const MONT_MUL_2048_P1_NAME: &str = "MONT_MUL_2048_P1";
+#[cfg(not(feature = "rv64"))]
+pub const MONT_MUL_2048_P2_FUNCT3: u32 = 0x00;
+#[cfg(not(feature = "rv64"))]
+pub const MONT_MUL_2048_P2_FUNCT7: u32 = 0x03;
+#[cfg(not(feature = "rv64"))]
+pub const MONT_MUL_2048_P2_NAME: &str = "MONT_MUL_2048_P2";
+/// Split point for the outer loop (each half < 65535 virtual instructions).
+#[cfg(not(feature = "rv64"))]
+pub const SPLIT_AT: usize = LIMBS_2048 / 2;
 
 #[cfg(feature = "host")]
 use tracer::register_inline;
 
-#[cfg(feature = "host")]
+#[cfg(all(feature = "host", feature = "rv64"))]
 pub fn init_inlines() -> Result<(), String> {
     register_inline(
         INLINE_OPCODE,
@@ -48,6 +70,25 @@ pub fn init_inlines() -> Result<(), String> {
         MONT_MUL_2048_FUNCT7,
         MONT_MUL_2048_NAME,
         std::boxed::Box::new(mont_mul::sequence_builder::mont_mul_2048_sequence_builder),
+    )?;
+    Ok(())
+}
+
+#[cfg(all(feature = "host", not(feature = "rv64")))]
+pub fn init_inlines() -> Result<(), String> {
+    register_inline(
+        INLINE_OPCODE,
+        MONT_MUL_2048_P1_FUNCT3,
+        MONT_MUL_2048_P1_FUNCT7,
+        MONT_MUL_2048_P1_NAME,
+        std::boxed::Box::new(mont_mul::sequence_builder::mont_mul_2048_p1_sequence_builder),
+    )?;
+    register_inline(
+        INLINE_OPCODE,
+        MONT_MUL_2048_P2_FUNCT3,
+        MONT_MUL_2048_P2_FUNCT7,
+        MONT_MUL_2048_P2_NAME,
+        std::boxed::Box::new(mont_mul::sequence_builder::mont_mul_2048_p2_sequence_builder),
     )?;
     Ok(())
 }

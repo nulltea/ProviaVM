@@ -25,6 +25,8 @@ use jolt_core::transcripts::{Blake2bTranscript, Transcript};
 use jolt_core::zkvm::{Jolt, JoltProverPreprocessing};
 
 pub use jolt_core::zkvm::JoltRV32IM;
+#[cfg(feature = "rv64")]
+pub use jolt_core::zkvm::JoltRV64IMAC;
 
 #[cfg(not(feature = "rv64"))]
 pub type JoltArch = JoltRV32IM;

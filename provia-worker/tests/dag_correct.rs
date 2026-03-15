@@ -52,8 +52,18 @@ fn use_sha2_fixture() -> bool {
     matches!(std::env::var("TEST_SHA2").ok().as_deref().or(std::env::var("SHA2_CHAIN").ok().as_deref()), Some("1"))
 }
 
+fn use_zkemail_fixture() -> bool {
+    matches!(std::env::var("TEST_ZKEMAIL").ok().as_deref(), Some("1"))
+}
+
 fn build_program() -> Program {
-    if use_sha2_fixture() {
+    if use_zkemail_fixture() {
+        let mut program = Program::new("zkemail-guest");
+        program.set_stack_size(131072);
+        program.set_memory_size(1048576);
+        program.set_max_input_size(65536);
+        program
+    } else if use_sha2_fixture() {
         let mut program = Program::new("sha2-chain-guest");
         program.set_stack_size(65536);
         program.set_memory_size(10240);
@@ -67,12 +77,42 @@ fn build_program() -> Program {
 
 /// Returns (public_inputs, untrusted_advice).
 fn build_inputs() -> (Vec<u8>, Vec<u8>) {
-    if use_sha2_fixture() {
+    if use_zkemail_fixture() {
+        let advice = postcard::to_stdvec(&build_zkemail_input()).unwrap();
+        (vec![], advice)
+    } else if use_sha2_fixture() {
         let mut advice = postcard::to_stdvec(&[5u8; 32]).unwrap();
         advice.append(&mut postcard::to_stdvec(&1u32).unwrap());
         (vec![], advice)
     } else {
         (postcard::to_stdvec(&9u32).unwrap(), vec![])
+    }
+}
+
+/// Build a synthetic DKIMInput with a valid RSA-2048 PKCS#1v15-SHA256 signature.
+fn build_zkemail_input() -> zkemail_core::DKIMInput {
+    use rsa::pkcs1::EncodeRsaPublicKey;
+    use rsa::signature::{SignatureEncoding, Signer};
+
+    let mut rng = ChaCha12Rng::seed_from_u64(42);
+    let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+    let public_key = rsa::RsaPublicKey::from(&private_key);
+
+    let signed_headers = b"from:test@example.com\r\nto:bob@example.com\r\n".to_vec();
+
+    // Sign the headers with PKCS#1 v1.5 SHA-256
+    let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
+    let signature_obj = signing_key.sign(&signed_headers);
+    let signature = signature_obj.to_vec();
+
+    // Export public key in PKCS#1 DER format
+    let public_key_der = public_key.to_pkcs1_der().unwrap().to_vec();
+
+    zkemail_core::DKIMInput {
+        signed_headers,
+        signature,
+        public_key_der,
+        from_domain: b"example.com".to_vec(),
     }
 }
 
@@ -163,7 +203,7 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
 
             // Preprocessing: create EdaBits pool for B2A conversions (2 rounds).
             let mut preproc = {
-                use provia_worker::zkvm::preproc_budget::compute_edabit_budget;
+                use provia_worker::zkvm::preprocessing::compute_edabit_budget;
                 use mpc_core::protocols::rep3_ring::edabits;
                 let budget = compute_edabit_budget(trace.len());
                 let pool_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -340,6 +380,21 @@ fn dag_zk_tampered_stage5_hidden_claim_fails() {
         err_text.contains("Stage 5") || err_text.contains("BlindFold"),
         "unexpected verification error after tampering stage5 hidden claim: {err_text}"
     );
+}
+
+#[test]
+fn zkemail_trace_only() {
+    let mut program = Program::new("zkemail-guest");
+    program.set_stack_size(131072);
+    program.set_memory_size(1048576);
+    program.set_max_input_size(65536);
+
+    let advice = postcard::to_stdvec(&build_zkemail_input()).unwrap();
+    eprintln!("Serialized advice size: {} bytes", advice.len());
+
+    let (trace, _memory, io_device) = program.trace(&[], &advice, &[]);
+    eprintln!("Trace length: {}", trace.len());
+    eprintln!("Outputs: {:?}", &io_device.outputs[..io_device.outputs.len().min(64)]);
 }
 
 fn rep3_proof_twist_switch_index(padded_len: usize) -> usize {
