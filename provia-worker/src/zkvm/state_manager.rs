@@ -2,7 +2,7 @@ use crate::host::jolt_device::Rep3ProgramIOInput;
 use crate::host::memory::Rep3Memory;
 use crate::poly::multilinear_polynomial::Rep3MultilinearPolynomial;
 use crate::poly::opening_proof::Rep3OpeningAccumulatorWorker;
-use crate::zkvm::dag::witness::Rep3CycleWitnesses;
+use crate::zkvm::witness::types::Rep3CycleWitnesses;
 use crate::zkvm::instruction::Rep3Cycle;
 use jolt_core::field::JoltField;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
@@ -11,7 +11,7 @@ use mpc_core::protocols::rep3::PartyID;
 use mpc_core::MaybeShared;
 
 // Re-export vanilla DAG types
-pub use jolt_core::zkvm::dag::state_manager::{ProofData, ProofKeys, Proofs};
+pub use jolt_core::zkvm::state_manager::{ProofData, ProofKeys, Proofs};
 
 // ---------------------------------------------------------------------------
 // Worker

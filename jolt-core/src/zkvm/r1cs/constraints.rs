@@ -551,15 +551,15 @@ pub fn eval_az_by_name<F: JoltField>(c: &NamedConstraint, row: &R1CSCycleInputs)
         // Az: Assert flag (0/1)
         N::AssertLookupOne => row.flags[CircuitFlags::Assert].into(),
         // Az: Rd register index (0 disables write)
-        N::WriteLookupOutputToRDDef => (row.rd_addr as i128),
+        N::WriteLookupOutputToRDDef => row.rd_addr as i128,
         N::RdWriteEqLookupIfWriteLookupToRd => {
             // Az: WriteLookupOutputToRD indicator (0/1)
-            (row.write_lookup_output_to_rd_addr as i128)
+            row.write_lookup_output_to_rd_addr as i128
         }
         // Az: Rd register index (0 disables write)
-        N::WritePCtoRDDef => (row.rd_addr as i128),
+        N::WritePCtoRDDef => row.rd_addr as i128,
         // Az: WritePCtoRD indicator (0/1)
-        N::RdWriteEqPCPlusConstIfWritePCtoRD => (row.write_pc_to_rd_addr as i128),
+        N::RdWriteEqPCPlusConstIfWritePCtoRD => row.write_pc_to_rd_addr as i128,
         // Az: Jump flag (0/1)
         N::ShouldJumpDef => row.flags[CircuitFlags::Jump].into(),
         // Az: ShouldJump indicator (0/1)

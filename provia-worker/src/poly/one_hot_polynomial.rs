@@ -20,7 +20,7 @@ use rayon::prelude::*;
 
 use crate::poly::ra_poly::{shifted_table_from_rand_ohv, Rep3RaPolynomial};
 use crate::utils::fwht::fwht_in_place;
-use crate::zkvm::dag::preproc_budget::rand_ohv_rotation_count;
+use crate::zkvm::preprocessing::rand_ohv_rotation_count;
 use jolt_core::field::JoltField;
 
 /// Represents a one-hot multilinear polynomial (ra/wa) used
@@ -91,11 +91,8 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
             rotation_count * K
         );
 
-        let rand_ohv_e_fields: Vec<Arc<Vec<Rep3PrimeFieldShare<F>>>> = (0..rotation_count)
-            .map(|slot| {
-                Arc::new(batch.e_fields_flat[slot * K..(slot + 1) * K].to_vec())
-            })
-            .collect();
+        let rand_ohv_e_fields: Vec<Arc<Vec<Rep3PrimeFieldShare<F>>>> =
+            (0..rotation_count).map(|slot| Arc::new(batch.e_fields_flat[slot * K..(slot + 1) * K].to_vec())).collect();
         let r_shares = batch.r_shares;
 
         // Open masked indices `c[j] = open(k(j) XOR r)` for active cycles only.
@@ -148,12 +145,7 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
         Self {
             K,
             masked_indices_c: masked_indices_c.clone(),
-            rotation_slot_by_cycle: Arc::new(
-                masked_indices_c
-                    .iter()
-                    .map(|opt| opt.map(|_| 0u8))
-                    .collect(),
-            ),
+            rotation_slot_by_cycle: Arc::new(masked_indices_c.iter().map(|opt| opt.map(|_| 0u8)).collect()),
             rand_ohv_e_fields: Arc::new(vec![rand_ohv_e_field]),
             ..Default::default()
         }
@@ -223,10 +215,7 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
         self.rand_ohv_e_fields[slot].as_ref()
     }
 
-    pub fn shifted_tables_from_public_table(
-        &self,
-        table: &[F],
-    ) -> Vec<Vec<Rep3PrimeFieldShare<F>>> {
+    pub fn shifted_tables_from_public_table(&self, table: &[F]) -> Vec<Vec<Rep3PrimeFieldShare<F>>> {
         (0..self.num_rotation_slots())
             .map(|slot| shifted_table_from_rand_ohv(table, self.rand_ohv_e_field(slot)))
             .collect()
@@ -279,8 +268,7 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
         //     bases.len()
         // );
         eyre::ensure!(
-            !self.rand_ohv_e_fields.is_empty()
-                && self.rand_ohv_e_fields.iter().all(|e| e.len() == self.K),
+            !self.rand_ohv_e_fields.is_empty() && self.rand_ohv_e_fields.iter().all(|e| e.len() == self.K),
             "RandOHV slot must be initialized with K-length entries"
         );
 
@@ -296,9 +284,7 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
             let bases_group: Vec<G> = bases.iter().map(|b| b.into_group()).collect();
 
             debug_assert!(self.K.is_power_of_two(), "K must be power-of-two for FWHT");
-            let inv_k = F::from(self.K as u64)
-                .inverse()
-                .expect("K invertible in field");
+            let inv_k = F::from(self.K as u64).inverse().expect("K invertible in field");
 
             let rows_per_k = t / row_len;
 
@@ -362,11 +348,7 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
             // Multi-slot (R>1) path: per-slot scatter + accumulate.
             let g_hat_by_slot: Vec<Vec<F>> = (0..self.num_rotation_slots())
                 .map(|slot| {
-                    let mut g_hat: Vec<F> = self
-                        .rand_ohv_e_field(slot)
-                        .iter()
-                        .map(|s| s.a)
-                        .collect();
+                    let mut g_hat: Vec<F> = self.rand_ohv_e_field(slot).iter().map(|s| s.a).collect();
                     fwht_in_place(&mut g_hat);
                     g_hat
                 })
@@ -505,18 +487,12 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
             // FWHT of the E_field .a shares (computed once, reused for all row_offsets).
             let g_hat_by_slot: Vec<Vec<F>> = (0..self.num_rotation_slots())
                 .map(|slot| {
-                    let mut g_hat: Vec<F> = self
-                        .rand_ohv_e_field(slot)
-                        .iter()
-                        .map(|s| s.a)
-                        .collect();
+                    let mut g_hat: Vec<F> = self.rand_ohv_e_field(slot).iter().map(|s| s.a).collect();
                     fwht_in_place(&mut g_hat);
                     g_hat
                 })
                 .collect();
-            let inv_k = F::from(self.K as u64)
-                .inverse()
-                .expect("K invertible in field");
+            let inv_k = F::from(self.K as u64).inverse().expect("K invertible in field");
 
             // For each row_offset, compute conv[c] = Σ_k g[k XOR c] * l_vec[k * rows_per_k + row_offset]
             // via FWHT XOR-convolution: conv = IFWHT(FWHT(g) · FWHT(h)) / K.
@@ -553,51 +529,42 @@ impl<F: JoltField> Rep3OneHotPolynomial<F> {
                 .collect();
 
             // Accumulate into v_vec using precomputed convolution lookups.
-            v_vec
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(col_index, dest)| {
-                        let mut col_dot_product = F::zero();
-                        for (row_offset, t_idx) in (col_index..t).step_by(row_len).enumerate() {
-                            if let Some(c) = self.masked_indices_c[t_idx] {
-                                let slot = self.rotation_slot(t_idx).expect("active slot");
-                                col_dot_product +=
-                                    convolutions_by_slot[row_offset][slot][c as usize];
-                            }
-                        }
-                        *dest += coeff * col_dot_product;
-                });
+            v_vec.par_iter_mut().enumerate().for_each(|(col_index, dest)| {
+                let mut col_dot_product = F::zero();
+                for (row_offset, t_idx) in (col_index..t).step_by(row_len).enumerate() {
+                    if let Some(c) = self.masked_indices_c[t_idx] {
+                        let slot = self.rotation_slot(t_idx).expect("active slot");
+                        col_dot_product += convolutions_by_slot[row_offset][slot][c as usize];
+                    }
+                }
+                *dest += coeff * col_dot_product;
+            });
         } else {
             // T < row_len case
             let num_chunks = rayon::current_num_threads().next_power_of_two();
             let chunk_size = std::cmp::max(1, num_columns / num_chunks);
 
-            v_vec
-                .par_chunks_mut(chunk_size)
-                .enumerate()
-                .for_each(|(chunk_index, chunk)| {
-                    let min_col_index = chunk_index * chunk_size;
-                    let max_col_index = min_col_index + chunk_size;
-                    for (t_idx, opt_c) in self.masked_indices_c.iter().enumerate() {
-                        if let Some(c) = opt_c {
-                            for k in 0..self.K {
-                                let global_index = k as u128 * t as u128 + t_idx as u128;
-                                let col_index = (global_index % row_len as u128) as usize;
-                                if col_index >= min_col_index && col_index < max_col_index {
-                                    let row_index = (global_index / row_len as u128) as usize;
-                                    let e_idx = k ^ (*c as usize);
-                                    if row_index < l_vec.len() {
-                                        chunk[col_index % chunk_size] += coeff
-                                            * self.rand_ohv_e_field(
-                                                self.rotation_slot(t_idx).expect("active slot"),
-                                            )[e_idx]
-                                                .a
-                                            * l_vec[row_index];
-                                    }
+            v_vec.par_chunks_mut(chunk_size).enumerate().for_each(|(chunk_index, chunk)| {
+                let min_col_index = chunk_index * chunk_size;
+                let max_col_index = min_col_index + chunk_size;
+                for (t_idx, opt_c) in self.masked_indices_c.iter().enumerate() {
+                    if let Some(c) = opt_c {
+                        for k in 0..self.K {
+                            let global_index = k as u128 * t as u128 + t_idx as u128;
+                            let col_index = (global_index % row_len as u128) as usize;
+                            if col_index >= min_col_index && col_index < max_col_index {
+                                let row_index = (global_index / row_len as u128) as usize;
+                                let e_idx = k ^ (*c as usize);
+                                if row_index < l_vec.len() {
+                                    chunk[col_index % chunk_size] += coeff
+                                        * self.rand_ohv_e_field(self.rotation_slot(t_idx).expect("active slot"))[e_idx]
+                                            .a
+                                        * l_vec[row_index];
                                 }
                             }
                         }
                     }
+                }
             });
         }
     }
@@ -935,10 +902,7 @@ pub(crate) fn compute_g_from_masked_indices<F: JoltField>(
     assert_eq!(eq_cycle.len(), polynomial.masked_indices_c.len());
     assert!(
         !polynomial.rand_ohv_e_fields.is_empty()
-            && polynomial
-                .rand_ohv_e_fields
-                .iter()
-                .all(|e| e.len() == polynomial.K)
+            && polynomial.rand_ohv_e_fields.iter().all(|e| e.len() == polynomial.K)
     );
 
     // Histogram in masked index space.
@@ -1039,10 +1003,7 @@ pub fn compute_g_from_masked_indices_many<F: JoltField, const D: usize>(
     debug_assert_eq!(eq_cycle.len(), polynomials[0].masked_indices_c.len());
     debug_assert!(
         !polynomials[0].rand_ohv_e_fields.is_empty()
-            && polynomials[0]
-                .rand_ohv_e_fields
-                .iter()
-                .all(|e| e.len() == polynomials[0].K)
+            && polynomials[0].rand_ohv_e_fields.iter().all(|e| e.len() == polynomials[0].K)
     );
 
     let t = eq_cycle.len();
@@ -1050,11 +1011,7 @@ pub fn compute_g_from_masked_indices_many<F: JoltField, const D: usize>(
 
     for i in 1..D {
         debug_assert_eq!(polynomials[i].K, k_len, "K mismatch across chunks");
-        debug_assert_eq!(
-            polynomials[i].masked_indices_c.len(),
-            t,
-            "masked indices length mismatch"
-        );
+        debug_assert_eq!(polynomials[i].masked_indices_c.len(), t, "masked indices length mismatch");
         debug_assert_eq!(
             polynomials[i].num_rotation_slots(),
             polynomials[0].num_rotation_slots(),
@@ -1122,9 +1079,8 @@ pub fn compute_g_from_masked_indices_many<F: JoltField, const D: usize>(
             let start = chunk_index * chunk_size;
             let end = ((chunk_index + 1) * chunk_size).min(t);
 
-            let mut local: [Vec<Vec<F>>; D] = std::array::from_fn(|_| {
-                vec![vec![F::zero(); k_len]; polynomials[0].num_rotation_slots()]
-            });
+            let mut local: [Vec<Vec<F>>; D] =
+                std::array::from_fn(|_| vec![vec![F::zero(); k_len]; polynomials[0].num_rotation_slots()]);
             for j in start..end {
                 let eq = eq_cycle[j];
                 for i in 0..D {
@@ -1137,11 +1093,7 @@ pub fn compute_g_from_masked_indices_many<F: JoltField, const D: usize>(
             local
         })
         .reduce(
-            || {
-                std::array::from_fn(|_| {
-                    vec![vec![F::zero(); k_len]; polynomials[0].num_rotation_slots()]
-                })
-            },
+            || std::array::from_fn(|_| vec![vec![F::zero(); k_len]; polynomials[0].num_rotation_slots()]),
             |mut a, b| {
                 for i in 0..D {
                     for (slot_a, slot_b) in a[i].iter_mut().zip(b[i].iter()) {
@@ -1260,19 +1212,16 @@ mod tests {
             }
         }
 
-        let rep3_polys: [Rep3OneHotPolynomial<F>; 3] =
-            std::array::from_fn(|pid| Rep3OneHotPolynomial {
-                K: k,
-                masked_indices_c: masked_indices_c.clone(),
-                rotation_slot_by_cycle: Arc::new(
-                    masked_indices_c.iter().map(|opt| opt.map(|_| 0u8)).collect(),
-                ),
-                rand_ohv_e_fields: Arc::new(vec![e_field_party[pid].clone()]),
-                num_variables_bound: 0,
-                G: vec![],
-                H: Arc::new(RwLock::new(Rep3RaPolynomial::None)),
-                r_shares: vec![Rep3RingShare::default()],
-            });
+        let rep3_polys: [Rep3OneHotPolynomial<F>; 3] = std::array::from_fn(|pid| Rep3OneHotPolynomial {
+            K: k,
+            masked_indices_c: masked_indices_c.clone(),
+            rotation_slot_by_cycle: Arc::new(masked_indices_c.iter().map(|opt| opt.map(|_| 0u8)).collect()),
+            rand_ohv_e_fields: Arc::new(vec![e_field_party[pid].clone()]),
+            num_variables_bound: 0,
+            G: vec![],
+            H: Arc::new(RwLock::new(Rep3RaPolynomial::None)),
+            r_shares: vec![Rep3RingShare::default()],
+        });
 
         (nonzero_indices_plain, vanilla_poly, rep3_polys)
     }
@@ -1355,9 +1304,7 @@ mod tests {
         let polys: [Rep3OneHotPolynomial<F>; 3] = std::array::from_fn(|pid| Rep3OneHotPolynomial {
             K,
             masked_indices_c: Arc::new(masked_indices_c.clone()),
-            rotation_slot_by_cycle: Arc::new(
-                masked_indices_c.iter().map(|opt| opt.map(|_| 0u8)).collect(),
-            ),
+            rotation_slot_by_cycle: Arc::new(masked_indices_c.iter().map(|opt| opt.map(|_| 0u8)).collect()),
             rand_ohv_e_fields: Arc::new(vec![Arc::new(e_field_party[pid].clone())]),
             num_variables_bound: 0,
             G: vec![],

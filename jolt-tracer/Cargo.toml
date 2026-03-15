@@ -27,7 +27,6 @@ path = "src/main.rs"
 
 [features]
 default = ["std"]
-rv32 = []
 rv64 = []
 std = [
     "fnv/std",
@@ -45,7 +44,7 @@ object.workspace = true
 tracing = { workspace = true, features = [
     "attributes",
 ], default-features = false }
-ark-serialize.workspace = true
+ark-serialize = { workspace = true, features = ["derive"] }
 derive_more.workspace = true
 serde.workspace = true
 serde_json.workspace = true

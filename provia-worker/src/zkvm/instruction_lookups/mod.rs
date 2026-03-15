@@ -11,8 +11,8 @@ use mpc_core::protocols::rep3_ring::edabits::PreprocessingPool;
 
 use crate::poly::one_hot_polynomial::Rep3OneHotPolynomial;
 use crate::poly::opening_proof::Rep3OpeningAccumulatorWorker;
-use crate::zkvm::dag::stage::{BatchedSumcheckWorkerInstance, SumcheckStagesWorker};
-use crate::zkvm::dag::state_manager::StateManagerWorker;
+use crate::zkvm::stage::{BatchedSumcheckWorkerInstance, SumcheckStagesWorker};
+use crate::zkvm::state_manager::StateManagerWorker;
 use jolt_core::field::JoltField;
 
 use self::booleanity::Rep3BooleanitySumcheckWorker;

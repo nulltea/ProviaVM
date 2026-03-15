@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::poly::commitment::Rep3CommitmentScheme;
 use crate::subprotocols::sumcheck::{BatchedSumcheckInstance, HybridBatchedSumcheck};
-use crate::zkvm::dag::stage::{Rep3JoltDagStages, SumcheckStagesCoordinator};
-use crate::zkvm::dag::state_manager::{ProofData, ProofKeys, StateManager};
+use crate::zkvm::stage::{Rep3JoltDagStages, SumcheckStagesCoordinator};
+use crate::zkvm::state_manager::{ProofData, ProofKeys, StateManager};
 use crate::zkvm::spartan::Rep3SpartanDag;
 use jolt_core::curve::Bn254Curve;
 use jolt_core::field::JoltField;
@@ -20,7 +20,7 @@ use jolt_core::subprotocols::blindfold::{
     RoundWitness, StageConfig, StageWitness, ValueSource, VerifierR1CSBuilder, ZkStageData,
 };
 use jolt_core::transcripts::Transcript;
-use jolt_core::zkvm::dag::proof_serialization::{Claims, JoltProof};
+use jolt_core::zkvm::proof_serialization::{Claims, JoltProof};
 use jolt_core::zkvm::instruction_lookups::D as LOOKUP_D;
 use jolt_core::zkvm::witness::{compute_d_parameter, AllCommittedPolynomials, CommittedPolynomial, DTH_ROOT_OF_K};
 use mpc_core::protocols::rep3::network::Rep3NetworkCoordinator;
@@ -664,11 +664,9 @@ impl Rep3JoltDag {
 
     /// Produce the untrusted advice opening proof.
     ///
-    /// 1. Compute the advice opening point from the stage2 accumulator.
-    /// 2. Broadcast the point to workers.
-    /// 3. Receive additive evaluation shares from workers and sum.
-    /// 4. Initialize UntrustedAdvice DoryContext and coordinate the PCS prove.
-    /// 5. Store the opening and proof in the accumulator/proofs.
+    /// Computes the opening point from the stage2 accumulator, broadcasts it to
+    /// workers, collects their additive evaluation shares, and coordinates the
+    /// PCS prove under a dedicated UntrustedAdvice DoryContext.
     fn prove_untrusted_advice_opening<F, ProofTranscript, PCS, N>(
         state: &mut StateManager<'_, F, ProofTranscript, PCS>,
         network: &mut N,

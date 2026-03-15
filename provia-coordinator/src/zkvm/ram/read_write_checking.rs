@@ -12,8 +12,8 @@ use jolt_core::zkvm::witness::{CommittedPolynomial, VirtualPolynomial};
 use crate::poly::opening_proof::Rep3OpeningAccumulator;
 use jolt_core::field::JoltField;
 
-use crate::zkvm::dag::stage::Rep3SumcheckInstance;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::stage::Rep3SumcheckInstance;
+use crate::zkvm::state_manager::StateManager;
 
 const DEGREE: usize = 3;
 

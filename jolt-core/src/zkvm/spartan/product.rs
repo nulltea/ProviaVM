@@ -12,7 +12,7 @@ use crate::poly::opening_proof::{OpeningPoint, SumcheckId, VerifierOpeningAccumu
 use crate::subprotocols::blindfold::{InputClaimConstraint, OutputClaimConstraint, ValueSource};
 use crate::subprotocols::sumcheck::SumcheckInstance;
 use crate::transcripts::Transcript;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::state_manager::StateManager;
 use crate::zkvm::witness::{CommittedPolynomial, VirtualPolynomial};
 
 pub struct ProductVirtualizationSumcheck<F: JoltField> {

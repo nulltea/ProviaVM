@@ -10,8 +10,8 @@ use rayon::prelude::*;
 use strum::IntoEnumIterator;
 
 use crate::utils::types::Rep3Value;
-use crate::zkvm::dag::state_manager::StateManagerWorker;
-use crate::zkvm::dag::witness::Stage1RowRef;
+use crate::zkvm::state_manager::StateManagerWorker;
+use crate::zkvm::witness::types::Stage1RowRef;
 use jolt_core::field::JoltField;
 
 pub use jolt_core::zkvm::r1cs::inputs::{JoltR1CSInputs, ALL_R1CS_INPUTS, COMMITTED_R1CS_INPUTS};

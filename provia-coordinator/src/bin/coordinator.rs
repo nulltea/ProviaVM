@@ -61,18 +61,15 @@ fn main() -> eyre::Result<()> {
         rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().ok();
     }
 
-    // 1. Generate ephemeral ECDSA P-256 identity
     let identity = EphemeralIdentity::generate().context("generating ephemeral identity")?;
     info!(pubkey_len = identity.public_key_bytes.len(), "generated ephemeral ECDSA P-256 identity");
 
-    // 2. [if aws_nitro] Request NSM attestation binding the ephemeral pubkey
     #[cfg(feature = "aws_nitro")]
     let attestation_doc: Option<Vec<u8>> = {
         // TODO: integrate aws-nitro-enclaves-nsm-api
         None
     };
 
-    // 3. Select transport and enter proving loop
     #[cfg(feature = "aws_nitro")]
     {
         use provia_coordinator::transport::vsock_tls::VsockTlsCoordinator;

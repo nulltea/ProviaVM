@@ -28,16 +28,6 @@ use clap::Parser;
 use eyre::Context;
 use tracing::{info, info_span};
 
-use provia_worker::host::jolt_device::Rep3ProgramIOInput;
-use provia_worker::host::memory::Rep3Memory;
-use provia_worker::utils::compute_ram_k;
-#[cfg(feature = "test-utils")]
-use provia_worker::utils::tracing::start_rss_monitor;
-use provia_worker::zkvm::dag::preproc_budget::compute_edabit_budget;
-use provia_worker::zkvm::instruction::Rep3Cycle;
-use provia_worker::zkvm::JoltArch;
-use provia_worker::zkvm::Rep3JoltWorker;
-use provia_coordinator::types::ProofRequest;
 use jolt_core::poly::commitment::dory::{DoryCommitmentScheme, DoryGlobals};
 use jolt_core::zkvm::witness::{compute_d_parameter, AllCommittedPolynomials, DTH_ROOT_OF_K};
 use jolt_core::zkvm::JoltProverPreprocessing;
@@ -46,6 +36,16 @@ use mpc_net::config::{NetworkConfig, NetworkConfigFile};
 use mpc_net::rep3::quic::Rep3QuicMpcNetWorker;
 use mpc_net::rep3::tls::worker_listener::TlsWorkerListener;
 use mpc_net::topology::MpcStarNetWorker;
+use provia_coordinator::types::ProofRequest;
+use provia_worker::host::jolt_device::Rep3ProgramIOInput;
+use provia_worker::host::memory::Rep3Memory;
+use provia_worker::utils::compute_ram_k;
+#[cfg(feature = "test-utils")]
+use provia_worker::utils::tracing::start_rss_monitor;
+use provia_worker::zkvm::instruction::Rep3Cycle;
+use provia_worker::zkvm::preprocessing::compute_edabit_budget;
+use provia_worker::zkvm::JoltArch;
+use provia_worker::zkvm::Rep3JoltWorker;
 use serde::{Deserialize, Serialize};
 
 type F = Fr;
@@ -145,7 +145,6 @@ fn prove_loop(
     user_listener: &TlsWorkerListener,
 ) -> eyre::Result<()> {
     loop {
-        // 1. Accept user connection, receive payload
         info!("waiting for user connection...");
         let mut user_conn = user_listener.accept()?;
         info!(peer = %user_conn.peer_addr(), "accepted user connection");
@@ -173,10 +172,8 @@ fn prove_loop(
             });
         }
 
-        // 2. Sync with coordinator (barrier: "we have shares, ready to prove")
         io_ctx.sync_with_coordinator()?;
 
-        // 3. Build prover preprocessing (needed for ram_k computation and proving)
         let preprocessing: JoltProverPreprocessing<F, PCS> = <JoltArch as Rep3JoltWorker<F, PCS, _>>::preprocess(
             bytecode.clone(),
             program_io_share.memory_layout.clone(),
@@ -188,7 +185,6 @@ fn prove_loop(
         let ram_k = compute_ram_k(&trace, &preprocessing.shared);
         info!(padded_len, ram_k, trace_len = trace.len(), "received payload from user");
 
-        // 4. Send ProofRequest (public data) to coordinator
         let proof_request = ProofRequest {
             bytecode,
             memory_init,
@@ -211,7 +207,6 @@ fn prove_loop(
         let ram_d = compute_d_parameter(ram_k);
         let _poly_guard = AllCommittedPolynomials::initialize(ram_d, bytecode_d);
 
-        // 5. Preprocessing (edaBits + daBits + ring-MSM material)
         let party_id = io_ctx.party_id();
         let _span = info_span!("preprocessing", party_id = io_ctx.party_idx()).entered();
 
@@ -238,8 +233,7 @@ fn prove_loop(
 
                     let (rem_eda, rem_da) = pool.remaining_counts();
                     let rem_rand_ohvs = pool.remaining_rand_ohvs_u8_k4();
-                    let deficit_counts: [usize; 5] =
-                        std::array::from_fn(|i| counts[i].saturating_sub(rem_eda[i]));
+                    let deficit_counts: [usize; 5] = std::array::from_fn(|i| counts[i].saturating_sub(rem_eda[i]));
                     let deficit_dabits = num_dabits.saturating_sub(rem_da);
                     let deficit_rand_ohvs = num_rand_ohvs_u8_k4.saturating_sub(rem_rand_ohvs);
                     let deficit_re64 = budget.ring_edabits_u64.saturating_sub(pool.remaining_ring_edabits_u64());
@@ -267,7 +261,10 @@ fn prove_loop(
                     if need_extend {
                         info!(
                             ?deficit_counts,
-                            deficit_dabits, deficit_rand_ohvs, deficit_re64, deficit_re128,
+                            deficit_dabits,
+                            deficit_rand_ohvs,
+                            deficit_re64,
+                            deficit_re128,
                             "extending preprocessing pool"
                         );
                         #[cfg(not(feature = "ring-msm"))]
@@ -491,7 +488,6 @@ fn prove_loop(
         }
         drop(_span);
 
-        // 6. Prove
         <JoltArch as Rep3JoltWorker<F, PCS, _>>::prove(
             &preprocessing,
             trace,
@@ -502,7 +498,6 @@ fn prove_loop(
             &mut preproc,
         )?;
 
-        // 7. [worker 0] Receive proof from coordinator, relay to user
         if my_id == 0 {
             let proof_bytes: Vec<u8> = io_ctx.network().receive_request()?;
             info!(proof_len = proof_bytes.len(), "received proof from coordinator");

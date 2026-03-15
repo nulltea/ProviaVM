@@ -12,11 +12,11 @@ use crate::poly::Rep3MultilinearPolynomial;
 use crate::subprotocols::sumcheck::HybridBatchedSumcheckWorker;
 use crate::utils::memory::maybe_purge_jemalloc;
 use crate::utils::types::MaybeShared;
-use crate::zkvm::dag::stage::{Rep3JoltDagStagesWorker, SumcheckStagesWorker};
-use crate::zkvm::dag::state_manager::StateManagerWorker;
-#[cfg(feature = "ring-msm")]
-use crate::zkvm::inc_biased_b2a::biased_inc_b2a_many;
 use crate::zkvm::spartan::Rep3SpartanDagWorker;
+use crate::zkvm::stage::{Rep3JoltDagStagesWorker, SumcheckStagesWorker};
+use crate::zkvm::state_manager::StateManagerWorker;
+#[cfg(feature = "ring-msm")]
+use crate::zkvm::witness::biased_inc_b2a_many;
 use crate::zkvm::witness::{generate_witness_batch_rep3, populate_cycle_witness_rep3};
 use jolt_core::field::JoltField;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
@@ -267,6 +267,8 @@ impl Rep3JoltDagWorker {
             for key in [CommittedPolynomial::RdInc, CommittedPolynomial::RamInc] {
                 if let Some(poly) = witness_polys.get(&key) {
                     if matches!(poly, Rep3MultilinearPolynomial::Shared(Rep3SharedPoly::IRingScalars(_))) {
+                        use crate::zkvm::witness::biased_inc_b2a_many;
+
                         let _span = info_span!("iring_to_dense", ?key).entered();
                         // Extract arithmetic u64 shares
                         let inc_poly = match witness_polys.remove(&key).unwrap() {

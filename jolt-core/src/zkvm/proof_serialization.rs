@@ -23,7 +23,7 @@ use crate::{
     subprotocols::sumcheck::SumcheckInstanceProof,
     transcripts::Transcript,
     zkvm::{
-        dag::state_manager::{ProofData, ProofKeys, Proofs, StateManager},
+        state_manager::{ProofData, ProofKeys, Proofs, StateManager},
         witness::{CommittedPolynomial, VirtualPolynomial},
         JoltVerifierPreprocessing,
     },

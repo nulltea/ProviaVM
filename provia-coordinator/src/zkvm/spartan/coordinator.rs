@@ -25,7 +25,7 @@ use mpc_core::protocols::rep3::network::Rep3NetworkCoordinator;
 use rand::thread_rng;
 
 use crate::subprotocols::sumcheck::Rep3SumcheckInstance;
-use crate::zkvm::dag::state_manager::{ProofData, ProofKeys, StateManager};
+use crate::zkvm::state_manager::{ProofData, ProofKeys, StateManager};
 use crate::zkvm::spartan::inner::Rep3InnerSumcheck;
 use jolt_core::field::JoltField;
 #[cfg(feature = "zk")]

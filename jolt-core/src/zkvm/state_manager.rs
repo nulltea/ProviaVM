@@ -11,7 +11,7 @@ use crate::poly::opening_proof::{
 use crate::subprotocols::blindfold::BlindFoldProof;
 use crate::subprotocols::sumcheck::SumcheckInstanceProof;
 use crate::transcripts::Transcript;
-use crate::zkvm::dag::proof_serialization::JoltProof;
+use crate::zkvm::proof_serialization::JoltProof;
 use crate::zkvm::witness::VirtualPolynomial;
 use crate::zkvm::JoltVerifierPreprocessing;
 use num_derive::FromPrimitive;

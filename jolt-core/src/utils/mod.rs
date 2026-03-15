@@ -12,64 +12,31 @@ pub mod small_scalar;
 pub mod small_value;
 pub mod thread;
 pub mod tracing;
-/// Macros that determine the optimal iterator type based on the feature flags.
-///
-/// For some cases (ex. offloading to GPU), we may not want to use a parallel iterator.
-/// Specifically when icicle is enabled we want to be careful to use serial iteration in the right places.
-/// Based on observations; multiple calls into icicle_msm functions can dramatically slow down GPU performance.
 #[macro_export]
 macro_rules! optimal_iter {
     ($T:expr) => {{
-        #[cfg(feature = "icicle")]
-        {
-            $T.iter()
-        }
-        #[cfg(not(feature = "icicle"))]
-        {
-            $T.par_iter()
-        }
+        $T.par_iter()
     }};
 }
 
 #[macro_export]
 macro_rules! into_optimal_iter {
     ($T:expr) => {{
-        #[cfg(feature = "icicle")]
-        {
-            $T.into_iter()
-        }
-        #[cfg(not(feature = "icicle"))]
-        {
-            $T.into_par_iter()
-        }
+        $T.into_par_iter()
     }};
 }
 
 #[macro_export]
 macro_rules! optimal_iter_mut {
     ($T:expr) => {{
-        #[cfg(feature = "icicle")]
-        {
-            $T.iter_mut()
-        }
-        #[cfg(not(feature = "icicle"))]
-        {
-            $T.par_iter_mut()
-        }
+        $T.par_iter_mut()
     }};
 }
 
 #[macro_export]
 macro_rules! join_conditional {
     ($f1:expr, $f2:expr) => {{
-        #[cfg(feature = "icicle")]
-        {
-            ($f1(), $f2())
-        }
-        #[cfg(not(feature = "icicle"))]
-        {
-            rayon::join($f1, $f2)
-        }
+        rayon::join($f1, $f2)
     }};
 }
 

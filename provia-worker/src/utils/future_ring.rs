@@ -391,11 +391,11 @@ where
 
     // Cast A→F (arithmetic ring → field) via A2B (Kogge-Stone) then B2A (edaBits)
     if !buckets.cast_x.is_empty() {
-        // Step 1: A2B (parallel across forks)
+        // A2B (parallel across forks)
         let binary: Vec<Rep3RingShare<R>> = io_ctx.par_chunks(buckets.cast_x, None, |xs, ctx| {
             rep3_ring::conversion::a2b_many(&xs, ctx).map_err(eyre::Error::from)
         })?;
-        // Step 2: B2A via edaBits (1 broadcast round)
+        // B2A via edaBits (1 broadcast round)
         let shares = {
             let mut session = preproc.begin_forkable_session();
             let reserved = session.reserve_edabits::<R>(binary.len())?;

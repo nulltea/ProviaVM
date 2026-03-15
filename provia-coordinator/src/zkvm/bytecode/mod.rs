@@ -7,8 +7,8 @@ use jolt_core::utils::math::Math;
 use jolt_core::zkvm::witness::VirtualPolynomial;
 use strum::IntoEnumIterator;
 
-use crate::zkvm::dag::stage::BatchedSumcheckInstance;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::stage::BatchedSumcheckInstance;
+use crate::zkvm::state_manager::StateManager;
 
 pub mod booleanity;
 pub mod hamming_weight;

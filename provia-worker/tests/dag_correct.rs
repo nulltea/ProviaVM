@@ -10,22 +10,22 @@ use rand_chacha::ChaCha12Rng;
 use provia_worker::host::program::generate_trace_shares;
 use provia_worker::utils::test_utils::run_rep3_local_test_with_coordinator;
 use provia_worker::utils::tracing::init_tracing;
-use provia_worker::zkvm::dag::state_manager::StateManagerWorker;
-use provia_worker::zkvm::dag::worker::Rep3JoltDagWorker;
+use provia_worker::zkvm::state_manager::StateManagerWorker;
+use provia_worker::zkvm::worker::Rep3JoltDagWorker;
 use provia_worker::zkvm::instruction::Rep3Cycle;
 use provia_worker::zkvm::{JoltArch, Rep3JoltWorker};
-use provia_coordinator::zkvm::dag::coordinator::Rep3JoltDag;
-use provia_coordinator::zkvm::dag::state_manager::StateManager;
+use provia_coordinator::zkvm::coordinator::Rep3JoltDag;
+use provia_coordinator::zkvm::state_manager::StateManager;
 
 use jolt_core::curve::Bn254Curve;
 use jolt_core::field::JoltField;
 use jolt_core::host::Program;
 use jolt_core::poly::commitment::dory::{DoryCommitmentScheme, DoryGlobals};
 use jolt_core::transcripts::Blake2bTranscript;
-use jolt_core::zkvm::dag::jolt_dag::JoltDAG;
-use jolt_core::zkvm::dag::proof_serialization::JoltProof;
-use jolt_core::zkvm::dag::state_manager::StateManager as VanillaStateManager;
-use jolt_core::zkvm::dag::state_manager::{ProofData, ProofKeys};
+use jolt_core::zkvm::verifier::JoltDAG;
+use jolt_core::zkvm::proof_serialization::JoltProof;
+use jolt_core::zkvm::state_manager::StateManager as VanillaStateManager;
+use jolt_core::zkvm::state_manager::{ProofData, ProofKeys};
 use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
 use jolt_core::zkvm::{JoltProverPreprocessing, JoltRV64IMAC, JoltVerifierPreprocessing};
 use tracer::JoltDevice;
@@ -161,7 +161,7 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
 
             // Preprocessing: create EdaBits pool for B2A conversions (2 rounds).
             let mut preproc = {
-                use provia_worker::zkvm::dag::preproc_budget::compute_edabit_budget;
+                use provia_worker::zkvm::preproc_budget::compute_edabit_budget;
                 use mpc_core::protocols::rep3_ring::edabits;
                 let budget = compute_edabit_budget(trace.len());
                 let pool_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

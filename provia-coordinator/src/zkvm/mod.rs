@@ -1,5 +1,7 @@
 pub mod bytecode;
-pub mod dag;
+pub mod coordinator;
+pub mod stage;
+pub mod state_manager;
 pub mod instruction_lookups;
 pub mod ram;
 pub mod registers;
@@ -10,13 +12,13 @@ use jolt_core::curve::Bn254Curve;
 use jolt_core::field::JoltField;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::transcripts::Transcript;
-use jolt_core::zkvm::dag::proof_serialization::JoltProof;
+use jolt_core::zkvm::proof_serialization::JoltProof;
 use jolt_core::zkvm::JoltVerifierPreprocessing;
 use mpc_core::protocols::rep3::network::Rep3NetworkCoordinator;
 use tracer::JoltDevice;
 
-use crate::zkvm::dag::coordinator::Rep3JoltDag;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::coordinator::Rep3JoltDag;
+use crate::zkvm::state_manager::StateManager;
 
 // ---------------------------------------------------------------------------
 // Coordinator trait

@@ -17,8 +17,8 @@ use tracer::JoltDevice;
 use crate::poly::opening_proof::Rep3OpeningAccumulator;
 use jolt_core::field::JoltField;
 
-use crate::zkvm::dag::stage::Rep3SumcheckInstance;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::stage::Rep3SumcheckInstance;
+use crate::zkvm::state_manager::StateManager;
 
 const DEGREE_OUTPUT: usize = 3;
 const DEGREE_VAL_FINAL: usize = 2;

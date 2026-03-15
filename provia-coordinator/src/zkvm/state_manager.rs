@@ -10,7 +10,7 @@ use tracer::JoltDevice;
 
 use crate::poly::opening_proof::Rep3OpeningAccumulator;
 
-pub use jolt_core::zkvm::dag::state_manager::{ProofData, ProofKeys, Proofs};
+pub use jolt_core::zkvm::state_manager::{ProofData, ProofKeys, Proofs};
 
 pub struct StateManager<'a, F: JoltField, ProofTranscript: Transcript, PCS: CommitmentScheme<Field = F>> {
     pub transcript: ProofTranscript,

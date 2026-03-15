@@ -14,8 +14,8 @@ use crate::host::jolt_device::Rep3ProgramIOInput;
 use crate::poly::dense_mlpoly::Rep3DensePolynomial;
 use crate::poly::mixed_polynomial::MixedPolynomial;
 use crate::utils::types::Rep3Value;
-use crate::zkvm::dag::stage::{BatchedSumcheckWorkerInstance, SumcheckStagesWorker};
-use crate::zkvm::dag::state_manager::StateManagerWorker;
+use crate::zkvm::stage::{BatchedSumcheckWorkerInstance, SumcheckStagesWorker};
+use crate::zkvm::state_manager::StateManagerWorker;
 use jolt_core::field::JoltField;
 
 use self::output_check::{Rep3OutputSumcheckWorker, Rep3ValFinalSumcheckWorker};

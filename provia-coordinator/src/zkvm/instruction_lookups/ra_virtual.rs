@@ -14,7 +14,7 @@ use mpc_core::protocols::additive::{self, AdditiveShare};
 use mpc_core::protocols::rep3::network::Rep3NetworkCoordinator;
 
 use crate::poly::opening_proof::Rep3OpeningAccumulator;
-use crate::zkvm::dag::stage::Rep3SumcheckInstance;
+use crate::zkvm::stage::Rep3SumcheckInstance;
 use jolt_core::curve::Bn254Curve;
 use jolt_core::field::JoltField;
 

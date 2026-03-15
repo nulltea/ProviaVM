@@ -4,7 +4,7 @@ use mpc_core::protocols::rep3::network::Rep3NetworkCoordinator;
 
 use crate::poly::commitment::Rep3CommitmentScheme;
 pub use crate::subprotocols::sumcheck::{BatchedSumcheckInstance, PublicSumcheckInstance, Rep3SumcheckInstance};
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::state_manager::StateManager;
 use jolt_core::field::JoltField;
 
 // ---------------------------------------------------------------------------

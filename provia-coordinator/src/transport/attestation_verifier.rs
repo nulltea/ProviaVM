@@ -25,13 +25,7 @@ pub fn verify_attestation(
     match policy {
         AttestationPolicy::AcceptAll => Ok(()),
         AttestationPolicy::AwsNitro { expected_pcrs: _ } => {
-            // Future implementation:
-            // 1. Parse COSE_Sign1 attestation document
-            // 2. Verify signature against AWS Nitro root cert chain
-            // 3. Check PCR0 (enclave image hash) matches expected
-            // 4. Extract public_key from attestation doc
-            // 5. Verify public_key matches TLS cert's public key
-            //    (proves the ephemeral key was generated inside THIS enclave)
+            // TODO: implement AWS Nitro attestation verification
             Err(eyre::eyre!("AwsNitro attestation verification not yet implemented"))
         }
     }

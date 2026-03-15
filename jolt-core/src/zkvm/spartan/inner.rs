@@ -10,7 +10,7 @@ use crate::subprotocols::blindfold::InputClaimConstraint;
 use crate::subprotocols::sumcheck::SumcheckInstance;
 use crate::transcripts::Transcript;
 use crate::utils::math::Math;
-use crate::zkvm::dag::state_manager::StateManager;
+use crate::zkvm::state_manager::StateManager;
 use crate::zkvm::r1cs::inputs::ALL_R1CS_INPUTS;
 use crate::zkvm::r1cs::key::UniformSpartanKey;
 use crate::zkvm::witness::VirtualPolynomial;
