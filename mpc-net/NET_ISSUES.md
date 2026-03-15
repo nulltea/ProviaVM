@@ -1,4 +1,4 @@
-# QUIC Transport Review and Optimization Plan for `mpc-net`, `mpc-core`, and `co-jolt2`
+# QUIC Transport Review and Optimization Plan for `mpc-net`, `mpc-core`, and `provia-worker`
 
 ## Summary
 
@@ -31,9 +31,9 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 1. Worker forking is the highest-impact transport anti-pattern
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3/network.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/examples/rep3_jolt.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3/network.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/examples/rep3_jolt.rs`
 
 **What happens now**
 - `IoContextPool::init(network, num_forks)` calls `IoContext::fork()`.
@@ -55,9 +55,9 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 2. The optimized byte manager is bypassed on important paths
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/channel.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/channel.rs`
 
 **What happens now**
 - Main worker channels use `ChannelHandle::manage_bytes_quic(...)`.
@@ -77,7 +77,7 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 3. `send_many` / `recv_many` are bulk-copy APIs disguised as generic RPC
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3/network.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3/network.rs`
 
 **What happens now**
 - `send_many` serializes the entire `&[F]` into one contiguous `Vec<u8>`.
@@ -99,7 +99,7 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 4. Coordinator fanout does avoidable O(workers × payload) cloning
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
 
 **What happens now**
 - `broadcast_request` serializes once into `Vec<u8>` but then clones that `Vec` per worker.
@@ -117,9 +117,9 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 5. Send semantics are still queueing semantics, not delivery semantics
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/channel.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/channel.rs`
 
 **What happens now**
 - Most call sites drop the oneshot returned by `blocking_send`.
@@ -138,8 +138,8 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 6. QUIC configuration is duplicated and static
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
 
 **What happens now**
 - Worker and coordinator configure transport separately.
@@ -155,12 +155,12 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 7. MPI is isolated and removable
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/mpi.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/mod.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/Cargo.toml`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/mpi.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/mod.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/Cargo.toml`
 
 **Current status**
-- It is feature-gated and not used by `mpc-core` / `co-jolt2`.
+- It is feature-gated and not used by `mpc-core` / `provia-worker`.
 
 **Impact**
 - Low runtime impact
@@ -169,12 +169,12 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ---
 
-## `mpc-core` and `co-jolt2` usage findings
+## `mpc-core` and `provia-worker` usage findings
 
 ### 8. Network concurrency is coupled to CPU concurrency
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/examples/rep3_jolt.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3/network.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/examples/rep3_jolt.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3/network.rs`
 
 **What happens now**
 - `IoContextPool::init(network, rayon::current_num_threads() as u32)` is used in the example.
@@ -193,10 +193,10 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 9. `par_chunks(None)` is too common on bulk network paths
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/witness.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/suffixes/future.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/instruction_lookups/read_raf_checking.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3_ring/preprocessing/edabits.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/witness.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/suffixes/future.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/instruction_lookups/read_raf_checking.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3_ring/preprocessing/edabits.rs`
 
 **What happens now**
 - Many bulk operations derive chunking from fork count or use `None`.
@@ -214,10 +214,10 @@ The phase 1 work should fix the concrete transport bugs and cap the working set.
 
 ### 10. The current API forces protocol code to hand-roll bulk transport policy
 **Files**
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3/network.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3_ring/preprocessing/edabits.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/witness.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/suffixes/future.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3/network.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3_ring/preprocessing/edabits.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/witness.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/suffixes/future.rs`
 
 **What happens now**
 - Each hot path invents its own chunk heuristic.
@@ -256,9 +256,9 @@ Make QUIC transport memory-bounded and materially cheaper **without changing pro
    - keep `MPC_WORKER_WRITE_BUF_MB` as a deprecated alias to `MPC_QUIC_WRITE_BUF_MB` for compatibility during migration
 
 ### Files
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/channel.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/channel.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
 
 ### Expected impact
 - Bounded queued payload on all QUIC byte paths
@@ -290,7 +290,7 @@ Make QUIC transport memory-bounded and materially cheaper **without changing pro
 4. Keep `get_worker_subnets()` as the path that creates real separate worker networks; do **not** change its semantics.
 
 ### Files
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
 
 ### Expected impact
 - Largest immediate transport win
@@ -325,9 +325,9 @@ Make QUIC transport memory-bounded and materially cheaper **without changing pro
    - they are intentionally different knobs
 
 ### Files
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/examples/rep3_jolt.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/utils/test_utils.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3/test_utils.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/examples/rep3_jolt.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/utils/test_utils.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3/test_utils.rs`
 
 ### Expected impact
 - Immediate RSS reduction even before deeper refactors
@@ -362,11 +362,11 @@ Make QUIC transport memory-bounded and materially cheaper **without changing pro
    - any other broadcast where serialized payload routinely exceeds `256 KiB`
 
 ### Files
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/poly/commitment/dory.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/poly/opening_proof.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/subprotocols/sumcheck.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/dag/stage.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/poly/commitment/dory.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/poly/opening_proof.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/subprotocols/sumcheck.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/dag/stage.rs`
 
 ### Expected impact
 - Lower coordinator heap spikes
@@ -399,11 +399,11 @@ Make QUIC transport memory-bounded and materially cheaper **without changing pro
 4. Keep small-latency paths on existing `send_many` / `reshare_many`; do not over-apply chunking to tiny messages.
 
 ### Files
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3/network.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-core/src/protocols/rep3_ring/preprocessing/edabits.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/witness.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/suffixes/future.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/co-jolt2/src/zkvm/instruction_lookups/read_raf_checking.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3/network.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-core/src/protocols/rep3_ring/preprocessing/edabits.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/witness.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/suffixes/future.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/provia-worker/src/zkvm/instruction_lookups/read_raf_checking.rs`
 
 ### Expected impact
 - Message sizes become stable across different thread counts
@@ -426,9 +426,9 @@ Add trace-level instrumentation only, no info-log spam:
 - stream-open count for worker forks
 
 ### Files
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/channel.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/worker.rs`
-- `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/channel.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/worker.rs`
+- `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/quic/coordinator.rs`
 
 ### Expected impact
 - Makes future traces explain queueing vs actual wire time
@@ -444,13 +444,13 @@ Add trace-level instrumentation only, no info-log spam:
 
 ### Changes
 1. Delete:
-   - `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/mpi.rs`
+   - `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/mpi.rs`
 
 2. Remove `mpi` feature and dependency from:
-   - `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/Cargo.toml`
+   - `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/Cargo.toml`
 
 3. Remove module export from:
-   - `/Users/timofey/repos/co-jolt2-opt-mem/mpc-net/src/rep3/mod.rs`
+   - `/Users/timofey/repos/provia-worker-opt-mem/mpc-net/src/rep3/mod.rs`
 
 ### Expected impact
 - Smaller crate surface
@@ -618,7 +618,7 @@ High:
    - add worker shared-channel opener methods
    - add blocking coordinator fanout variants
 
-2. `co-jolt2`
+2. `provia-worker`
    - add `--network-forks`
    - env fallback `NETWORK_FORKS`
 
@@ -671,12 +671,12 @@ High:
 3. daBit chunk-forward path regression
    - verify deterministic chunk order and stored layout
 
-## `co-jolt2`
+## `provia-worker`
 1. Correctness smoke:
-   - `RUSTFLAGS="-A warnings" cargo test -p co-jolt2 --test dag_correct --features test-utils -- --nocapture`
+   - `RUSTFLAGS="-A warnings" cargo test -p provia-worker --test dag_correct --features test-utils -- --nocapture`
 
 2. Bench / profiling smoke:
-   - `cd /Users/timofey/repos/co-jolt2-opt-mem/co-jolt2 && REUSE_PREPROC=1 NUM_ITERS=1 bash examples/run_rep3_jolt.sh`
+   - `cd /Users/timofey/repos/provia-worker-opt-mem/provia-worker && REUSE_PREPROC=1 NUM_ITERS=1 bash examples/run_rep3_jolt.sh`
 
 3. Preprocessing scaling trace:
    - Linux x86

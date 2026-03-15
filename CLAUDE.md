@@ -1,14 +1,14 @@
-# co-jolt2
+# provia-worker
 
 ## Context
-- Read: `co-jolt2/PROJECT.md`
+- docs: `docs/*.md`
 
 ## Build / Test rule
 - Always run with: `RUSTFLAGS="-A warnings"`
 
 ## Commands
 - Integration test:
-  - `cargo test -p co-jolt2 --test dag_correct --features test-utils -- --nocapture`
+  - `cargo test -p provia-worker --test dag_correct --features test-utils -- --nocapture`
 - Bench:
   - `REUSE_PREPROC=1 NUM_ITERS=1 bash examples/run_e2e.sh`
 

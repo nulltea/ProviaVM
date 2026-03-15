@@ -87,9 +87,9 @@ unnecessary over reliable vsock.
 
 | Component | Binary | Runs on | Crate |
 |-----------|--------|---------|-------|
-| Worker (MPC party) | app-specific | Any machine | `co-jolt2` + `mpc-net` |
-| Host Proxy | `host_proxy` | EC2 host | `co-jolt-coordinator` (feature: `aws_nitro`) |
-| Coordinator | `coordinator` | Nitro Enclave | `co-jolt-coordinator` (feature: `aws_nitro`) |
+| Worker (MPC party) | app-specific | Any machine | `provia-worker` + `mpc-net` |
+| Host Proxy | `host_proxy` | EC2 host | `provia-coordinator` (feature: `aws_nitro`) |
+| Coordinator | `coordinator` | Nitro Enclave | `provia-coordinator` (feature: `aws_nitro`) |
 | TLS Client | library | Worker process | `mpc-net` (feature: `tls`) |
 
 ### Configuration

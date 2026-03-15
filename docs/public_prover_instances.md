@@ -20,7 +20,7 @@ This file is a design ledger, not an implementation shortcut list. If a value is
 ### References
 
 - `papers/co-zkvms.md`
-- `co-jolt2/docs/witness_generation.md`
+- `provia-worker/docs/witness_generation.md`
 
 ## Design
 

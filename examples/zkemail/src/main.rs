@@ -22,10 +22,10 @@ use tracing_subscriber::{EnvFilter, Layer};
 use trust_dns_resolver::TokioAsyncResolver;
 use zkemail_core::{DKIMInput, DKIMOutput};
 
-use jolt_sdk::*;
+use provia_jolt_sdk::*;
 
 type F = Fr;
-type PCS = jolt_sdk::PCS;
+type PCS = provia_jolt_sdk::PCS;
 
 #[derive(Deserialize)]
 struct DelegatorConfig {

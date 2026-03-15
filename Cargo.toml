@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "co-jolt2",
-    "co-jolt-coordinator",
+    "provia-worker",
+    "provia-coordinator",
     "jolt-core",
     "jolt-tracer",
     "jolt-common",
@@ -10,14 +10,14 @@ members = [
     "mpc-core",
 ]
 exclude = [
-    "jolt-sdk",
+    "provia-jolt-sdk",
     "examples/fibonacci",
     "examples/sha2-chain",
     "examples/zkemail",
 ]
 default-members = [
-    "co-jolt2",
-    "co-jolt-coordinator",
+    "provia-worker",
+    "provia-coordinator",
     "mpc-net",
     "mpc-core",
 ]

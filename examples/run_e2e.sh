@@ -25,7 +25,7 @@ export RUSTFLAGS="${RUSTFLAGS:--A warnings}"
 TRANSPORT=${TRANSPORT:-tls}
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$REPO_DIR/.artifacts"}
 TRACE_DIR=${TRACE_DIR:-"$REPO_DIR/.traces"}
-PREPROC_DIR=${PREPROC_DIR:-"$REPO_DIR/co-jolt2/.preprocessing"}
+PREPROC_DIR=${PREPROC_DIR:-"$REPO_DIR/provia-worker/.preprocessing"}
 RAYON_THREADS=${RAYON_THREADS:-4}
 MPC_QUIC_CONN_LANES=${MPC_QUIC_CONN_LANES:-$RAYON_THREADS}
 NETWORK_FORKS=${NETWORK_FORKS:-$RAYON_THREADS}
@@ -45,17 +45,17 @@ TRACY_BASE_PORT=${TRACY_BASE_PORT:-$((8086 + PORT_OFFSET))}
 
 mkdir -p "$ARTIFACT_DIR" "$TRACE_DIR"
 
-CO_JOLT2_FEATURES="test-utils"
+WORKER_FEATURES="test-utils"
 if [ "$TRACY_ALLOC" = "1" ]; then
-  CO_JOLT2_FEATURES="$CO_JOLT2_FEATURES,tracy-mem,jemalloc-stats"
+  WORKER_FEATURES="$WORKER_FEATURES,tracy-mem,jemalloc-stats"
 fi
 if [ -n "$EXTRA_FEATURES" ]; then
-  CO_JOLT2_FEATURES="$CO_JOLT2_FEATURES,$EXTRA_FEATURES"
+  WORKER_FEATURES="$WORKER_FEATURES,$EXTRA_FEATURES"
 fi
 
 REUSE_PREPROC=${REUSE_PREPROC:-0}
 if [ "$REUSE_PREPROC" = "1" ]; then
-  CO_JOLT2_FEATURES="$CO_JOLT2_FEATURES,reuse-preproc"
+  WORKER_FEATURES="$WORKER_FEATURES,reuse-preproc"
 fi
 
 setup_jemalloc_preset "$JEMALLOC_PRESET"
@@ -69,10 +69,10 @@ echo "Building binaries..."
 cd "$REPO_DIR"
 
 cargo build --release \
-  -p co-jolt-coordinator --bin coordinator --features test-utils
+  -p provia-coordinator --bin coordinator --features test-utils
 
 cargo build --release \
-  -p co-jolt2 --bin worker --features "$CO_JOLT2_FEATURES"
+  -p provia-worker --bin worker --features "$WORKER_FEATURES"
 
 cargo build --release \
   -p mpc-net --bin gen_configs

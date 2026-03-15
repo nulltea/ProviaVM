@@ -7,9 +7,9 @@ edition = "2021"
 exclude = ["guest"]
 
 [dependencies]
-jolt-sdk = { path = "../../jolt-sdk", features = ["host"] }
+provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
 guest = { package = "zkemail-guest", path = "./guest" }
-co-jolt2 = { path = "../../co-jolt2" }
+provia-worker = { path = "../../provia-worker" }
 jolt-core = { path = "../../jolt-core", features = ["host"] }
 tracer = { path = "../../jolt-tracer", package = "jolt-tracer", default-features = false }
 ark-bn254 = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout", default-features = false, features = ["curve"] }

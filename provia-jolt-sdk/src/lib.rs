@@ -1,0 +1,84 @@
+#![cfg_attr(not(any(feature = "host", feature = "guest-std")), no_std)]
+
+extern crate provia_jolt_sdk_macros;
+
+#[cfg(any(feature = "host", feature = "guest-verifier"))]
+pub mod host_utils;
+#[cfg(any(feature = "host", feature = "guest-verifier"))]
+pub use host_utils::*;
+
+#[cfg(feature = "host")]
+pub mod client;
+#[cfg(feature = "host")]
+pub use rand;
+
+pub mod platform;
+pub use platform::*;
+pub use provia_jolt_sdk_macros::provable;
+pub use postcard;
+
+use serde::{Deserialize, Serialize};
+
+/// A wrapper type to mark guest program inputs as trusted_advice.
+#[derive(Debug, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct TrustedAdvice<T> {
+    value: T,
+}
+
+impl<T> TrustedAdvice<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
+    }
+}
+
+impl<T> From<T> for TrustedAdvice<T> {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T> core::ops::Deref for TrustedAdvice<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+/// A wrapper type to mark guest program inputs as public (not secret-shared).
+///
+/// Bare (unwrapped) parameters default to untrusted advice (secret-shared in MPC).
+/// Use this wrapper when the verifier needs to see the input in plaintext.
+#[derive(Debug, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct Public<T> {
+    value: T,
+}
+
+impl<T> Public<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
+    }
+}
+
+impl<T> From<T> for Public<T> {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T> core::ops::Deref for Public<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+// This is a dummy _HEAP_PTR to keep the compiler happy.
+// It should never be used when compiled as a guest or with
+// our custom allocator
+#[no_mangle]
+#[cfg(feature = "host")]
+pub static mut _HEAP_PTR: u8 = 0;

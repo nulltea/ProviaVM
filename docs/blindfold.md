@@ -1,15 +1,15 @@
 # Rep3 BlindFold Integration
 
-This note documents the BlindFold design implemented in `co-jolt2`.
+This note documents the BlindFold design implemented in `provia-worker`.
 
 It only covers what is specific to the DAG MPC integration. For background on BlindFold itself, see:
 
 - [upstream BlindFold note](/Users/timofey/repos/jolt/book/src/how/blindfold.md)
-- [local Dory MPC note](/Users/timofey/repos/co-zkvms/co-jolt2/docs/dory.md)
+- [local Dory MPC note](/Users/timofey/repos/co-zkvms/provia-worker/docs/dory.md)
 
 ## Summary
 
-BlindFold is integrated against the `co-jolt2` DAG proving pipeline.
+BlindFold is integrated against the `provia-worker` DAG proving pipeline.
 
 The implemented DAG BlindFold checkpoints are:
 
@@ -19,7 +19,7 @@ The implemented DAG BlindFold checkpoints are:
 4. stage4 DAG batch
 5. stage5 opening binding
 
-This is the canonical BlindFold shape for `co-jolt2`.
+This is the canonical BlindFold shape for `provia-worker`.
 
 There is no DAG uni-skip BlindFold stage. The DAG prover and verifier reconstruct BlindFold using the actual DAG checkpoints above.
 
@@ -101,7 +101,7 @@ The important DAG-specific design choice is stage5.
 
 Stage5 is the final BlindFold opening-binding checkpoint for the DAG pipeline. Its role is analogous to upstream vanilla stage8: it is the final hidden PCS-binding stage after the earlier proof checkpoints have accumulated opening claims.
 
-For `co-jolt2`, stage5 is defined over the interface exposed by the DAG opening-reduction pipeline:
+For `provia-worker`, stage5 is defined over the interface exposed by the DAG opening-reduction pipeline:
 
 - BlindFold stage5 uses the hidden reduced opening claims produced by opening reduction
 - those claims are addressed as `OpeningId::ReducedOpeningClaim(..)`
@@ -110,19 +110,19 @@ For `co-jolt2`, stage5 is defined over the interface exposed by the DAG opening-
 - `y_com` is the public PCS evaluation commitment bound into the transcript
 - `y_blinding` is the hidden blinding witness used for the stage5 extra constraint
 
-This is intentional. It is the final BlindFold stage for the DAG pipeline as implemented in `co-jolt2`.
+This is intentional. It is the final BlindFold stage for the DAG pipeline as implemented in `provia-worker`.
 
 ## Relation To Vanilla
 
 The upstream and DAG protocols play the same role at the final BlindFold opening-binding stage:
 
 - upstream vanilla uses its final BlindFold stage for the hidden opening-binding relation of the vanilla prover pipeline
-- `co-jolt2` uses DAG stage5 for the hidden opening-binding relation of the DAG prover pipeline
+- `provia-worker` uses DAG stage5 for the hidden opening-binding relation of the DAG prover pipeline
 
 What differs is the exact stage interface:
 
 - upstream writes the final BlindFold relation over the hidden openings exposed by the upstream opening path
-- `co-jolt2` writes the final BlindFold relation over the hidden reduced claims exposed by the DAG opening-reduction path
+- `provia-worker` writes the final BlindFold relation over the hidden reduced claims exposed by the DAG opening-reduction path
 
 So the design is analogous to vanilla, but specialized to the DAG protocol shape and stage boundaries rather than upstream's exact stage structure.
 
@@ -171,11 +171,11 @@ The intended division of responsibility is:
 - coordinator: transcript ownership, proof assembly, BlindFold witness construction, BlindFold proving
 - verifier: DAG-stage reconstruction and BlindFold verification
 
-This keeps BlindFold aligned with the rest of the `co-jolt2` architecture: MPC work stays on workers, while final proof assembly and transcript-bound ZK proving stay on the coordinator.
+This keeps BlindFold aligned with the rest of the `provia-worker` architecture: MPC work stays on workers, while final proof assembly and transcript-bound ZK proving stay on the coordinator.
 
 ## Final Design
 
-The implemented BlindFold design for `co-jolt2` is:
+The implemented BlindFold design for `provia-worker` is:
 
 - DAG-native rather than upstream-stage-native
 - coordinator-proved
@@ -183,4 +183,4 @@ The implemented BlindFold design for `co-jolt2` is:
 - verifier-zero-knowledge preserving
 - compatible with the existing Dory-based stage5 opening-binding flow
 
-The final BlindFold stage for DAG is stage5 over reduced opening claims. That is the intended `co-jolt2` design.
+The final BlindFold stage for DAG is stage5 over reduced opening claims. That is the intended `provia-worker` design.
