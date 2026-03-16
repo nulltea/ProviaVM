@@ -8,7 +8,7 @@ license = "MIT"
 [features]
 default = []
 host = ["dep:ctor", "dep:tracer", "dep:tracing"]
-rv64 = ["tracer/rv64"]
+rv64 = ["tracer?/rv64"]
 
 [dependencies]
 ctor = { version = "0.2", optional = true }

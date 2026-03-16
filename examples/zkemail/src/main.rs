@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use ::guest::{
-    build_delegate_verify_dkim, build_verifier_verify_dkim, compile_verify_dkim, memory_config_verify_dkim, verify_dkim,
+    analyze_verify_dkim, build_delegate_verify_dkim, build_verifier_verify_dkim, compile_verify_dkim,
+    memory_config_verify_dkim, verify_dkim,
 };
 use ark_bn254::Fr;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -11,6 +12,7 @@ use cfdkim::{dns::from_tokio_resolver, public_key::retrieve_public_key};
 use clap::Parser;
 use eyre::Context;
 use mailparse::MailHeaderMap;
+use num_bigint::BigUint;
 use serde::Deserialize;
 use slog::{o, Discard, Logger};
 use tracing::info;
@@ -20,9 +22,15 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
 use trust_dns_resolver::TokioAsyncResolver;
-use zkemail_core::{DKIMInput, DKIMOutput};
+use zkemail_core::{DKIMInput, DKIMOutput, Rsa65537Witness2048, RsaModStepWitness2048, RsaStepOp};
 
 use provia_jolt_sdk::*;
+use jolt_inlines_rsa::{
+    mont_mul_2048_trace_len,
+    mont_square_2048_trace_len,
+    modpow_65537_trace_len,
+};
+use jolt_inlines_rsa::verify::{limbs_to_bytes_be_2048, parse_pkcs1_modulus};
 
 type F = Fr;
 type PCS = provia_jolt_sdk::PCS;
@@ -45,6 +53,10 @@ struct Args {
     /// Expected sender domain (e.g., "google.com")
     #[clap(long)]
     from_domain: String,
+
+    /// Print RSA kernel and full guest trace lengths, then exit.
+    #[clap(long)]
+    profile_rsa: bool,
 }
 
 fn init_tracing() {
@@ -135,7 +147,99 @@ fn remove_b_value(header_value: &str) -> String {
 
 /// Prepare DKIM input by parsing the email, looking up DNS, and extracting
 /// the canonicalized signed headers + RSA public key + signature.
-async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Result<DKIMInput> {
+fn left_pad_be_256(bytes: &[u8]) -> eyre::Result<[u8; 256]> {
+    eyre::ensure!(bytes.len() <= 256, "integer exceeds 2048 bits");
+    let mut out = [0u8; 256];
+    let start = 256 - bytes.len();
+    out[start..].copy_from_slice(bytes);
+    Ok(out)
+}
+
+fn build_rsa_witness(public_key_der: &[u8], signature: &[u8]) -> eyre::Result<Rsa65537Witness2048> {
+    eyre::ensure!(signature.len() == 256, "signature must be 256 bytes");
+
+    let modulus = parse_pkcs1_modulus(public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
+    let modulus_be = limbs_to_bytes_be_2048(&modulus);
+    let modulus_bn = BigUint::from_bytes_be(&modulus_be);
+    let signature_be: [u8; 256] = signature.try_into().context("signature length")?;
+    let signature_bn = BigUint::from_bytes_be(&signature_be);
+
+    let mut witness = Rsa65537Witness2048 {
+        modulus_be: modulus_be.to_vec(),
+        signature_be: signature_be.to_vec(),
+        steps: vec![
+            RsaModStepWitness2048 {
+                op: RsaStepOp::Square,
+                quotient_be: vec![0u8; 256],
+                remainder_be: vec![0u8; 256],
+            };
+            17
+        ],
+    };
+
+    let mut current = signature_bn.clone();
+    for step_idx in 0..witness.steps.len() {
+        let (lhs, rhs, op) = if step_idx < 16 {
+            (&current, &current, RsaStepOp::Square)
+        } else {
+            (&current, &signature_bn, RsaStepOp::MulBase)
+        };
+        let product = lhs * rhs;
+        let quotient = &product / &modulus_bn;
+        let remainder = &product % &modulus_bn;
+        witness.steps[step_idx] = RsaModStepWitness2048 {
+            op,
+            quotient_be: left_pad_be_256(&quotient.to_bytes_be())
+                .expect("quotient fits in 2048 bits")
+                .to_vec(),
+            remainder_be: left_pad_be_256(&remainder.to_bytes_be())
+                .expect("remainder fits in 2048 bits")
+                .to_vec(),
+        };
+        current = remainder;
+    }
+
+    Ok(witness)
+}
+
+fn validate_rsa_witness(input: &DKIMInput, witness: &Rsa65537Witness2048) -> eyre::Result<()> {
+    let modulus = parse_pkcs1_modulus(&input.public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
+    let modulus_be = limbs_to_bytes_be_2048(&modulus);
+    eyre::ensure!(modulus_be.as_slice() == witness.modulus_be.as_slice(), "witness modulus mismatch");
+    let signature_be: [u8; 256] = input.signature.as_slice().try_into().context("signature length")?;
+    eyre::ensure!(signature_be.as_slice() == witness.signature_be.as_slice(), "witness signature mismatch");
+    eyre::ensure!(witness.steps.len() == 17, "expected 17 RSA witness steps");
+
+    let modulus_bn = BigUint::from_bytes_be(&witness.modulus_be);
+    let signature_bn = BigUint::from_bytes_be(&witness.signature_be);
+    let mut current = signature_bn.clone();
+    for (step_idx, step) in witness.steps.iter().enumerate() {
+        let expected_op = if step_idx < 16 { RsaStepOp::Square } else { RsaStepOp::MulBase };
+        eyre::ensure!(step.op == expected_op, "unexpected RSA witness op at step {step_idx}");
+        let rhs = if step_idx < 16 { &current } else { &signature_bn };
+        let quotient = BigUint::from_bytes_be(&step.quotient_be);
+        let remainder = BigUint::from_bytes_be(&step.remainder_be);
+        eyre::ensure!(remainder < modulus_bn, "witness remainder out of range at step {step_idx}");
+        eyre::ensure!(
+            &current * rhs == &quotient * &modulus_bn + &remainder,
+            "invalid modular witness relation at step {step_idx}",
+        );
+        current = remainder;
+    }
+
+    Ok(())
+}
+
+fn print_profile_summary(input: DKIMInput, witness: Rsa65537Witness2048) {
+    let summary = analyze_verify_dkim(TrustedAdvice::from(witness), input);
+    println!("arch: {}", if cfg!(feature = "rv64") { "rv64" } else { "rv32" });
+    println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
+    println!("mont_square_2048 trace length: {}", mont_square_2048_trace_len());
+    println!("modpow_65537 trace length: {}", modpow_65537_trace_len());
+    println!("verify_dkim trace length: {}", summary.trace_len());
+}
+
+async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Result<(DKIMInput, Rsa65537Witness2048)> {
     let logger = Logger::root(Discard, o!());
     let raw_email = std::fs::read(email_path).context("reading email file")?;
     let parsed = mailparse::parse_mail(&raw_email).map_err(|e| eyre::eyre!("parse email: {}", e))?;
@@ -210,13 +314,34 @@ async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Re
         "prepared DKIM input"
     );
 
-    Ok(DKIMInput { signed_headers, signature, public_key_der, from_domain: from_domain.as_bytes().to_vec() })
+    let input = DKIMInput {
+        signed_headers,
+        signature,
+        public_key_der,
+        from_domain: from_domain.as_bytes().to_vec(),
+    };
+    let witness = build_rsa_witness(&input.public_key_der, &input.signature)?;
+    validate_rsa_witness(&input, &witness)?;
+
+    Ok((
+        input,
+        witness,
+    ))
 }
 
 fn main() -> eyre::Result<()> {
     init_tracing();
 
     let args = Args::parse();
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let (dkim_input, rsa_witness) = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
+
+    if args.profile_rsa {
+        print_profile_summary(dkim_input, rsa_witness);
+        return Ok(());
+    }
+
     let config: DelegatorConfig =
         toml::from_str(&std::fs::read_to_string(&args.config_path).context("reading config")?)
             .context("parsing config")?;
@@ -231,17 +356,13 @@ fn main() -> eyre::Result<()> {
     let worker_addrs: [SocketAddr; 3] =
         addrs.try_into().map_err(|v: Vec<_>| eyre::eyre!("expected 3 worker addresses, got {}", v.len()))?;
 
-    // Prepare DKIM input (async DNS lookup)
-    let rt = tokio::runtime::Runtime::new()?;
-    let dkim_input = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
-
     // Compile guest program (before connecting so failures don't drop worker connections)
     let target_dir = "/tmp/jolt-guest-targets";
     let mut preprocessing_program = compile_verify_dkim(target_dir);
     let delegate = build_delegate_verify_dkim(compile_verify_dkim(target_dir));
 
     // Native execution
-    let native_output: DKIMOutput = verify_dkim(dkim_input.clone());
+    let native_output: DKIMOutput = verify_dkim(TrustedAdvice::from(rsa_witness.clone()), dkim_input.clone());
     info!(?native_output, "native DKIM verification result");
 
     // Connect to workers
@@ -252,7 +373,8 @@ fn main() -> eyre::Result<()> {
     // Delegate proof to workers
     info!("delegating proof...");
     let program_id = "zkemail-verify";
-    let (output, proof, program_io) = delegate(&mut client, dkim_input, program_id)?;
+    let (output, proof, program_io) =
+        delegate(&mut client, TrustedAdvice::from(rsa_witness), dkim_input, program_id)?;
     info!(trace_length = proof.trace_length, "proof received");
 
     // Verify the proof

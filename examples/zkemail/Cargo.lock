@@ -4977,6 +4977,7 @@ dependencies = [
  "jolt-inlines-sha2",
  "jolt-tracer",
  "mailparse",
+ "num-bigint",
  "provia-jolt-sdk",
  "provia-worker",
  "serde",

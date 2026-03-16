@@ -1,7 +1,12 @@
 //! RSA PKCS#1 v1.5 SHA-256 signature verification.
 
-use crate::{Limb, LIMBS_2048, LIMB_BYTES};
-use crate::modpow::modpow_65537;
+use crate::modpow::{
+    modpow_65537,
+    modpow_65537_prepared,
+    PreparedModulus2048,
+    ValidatedPreparedModulus2048,
+};
+use crate::{Limb, LIMB_BYTES, LIMBS_2048};
 
 /// Verify an RSA PKCS#1 v1.5 signature with SHA-256.
 ///
@@ -15,15 +20,30 @@ pub fn rsa_verify_pkcs1v15_sha256(
     signature: &[u8; 256],
     message_hash: &[u8; 32],
 ) -> bool {
-    // Convert signature (big-endian bytes) to little-endian limbs
-    let sig_limbs = bytes_be_to_limbs(signature);
+    let sig_limbs = bytes_be_to_limbs_2048(signature);
 
-    // Compute sig^65537 mod n
     let result = modpow_65537(&sig_limbs, n);
 
-    // Convert result back to big-endian bytes
-    let result_bytes = limbs_to_bytes_be(&result);
+    let result_bytes = limbs_to_bytes_be_2048(&result);
+    verify_pkcs1v15_sha256_encoded(&result_bytes, message_hash)
+}
 
+/// Verify an RSA PKCS#1 v1.5 signature with host-prepared Montgomery constants.
+pub fn rsa_verify_prepared_pkcs1v15_sha256(
+    prepared: &ValidatedPreparedModulus2048,
+    signature: &[u8; 256],
+    message_hash: &[u8; 32],
+) -> bool {
+    let sig_limbs = bytes_be_to_limbs_2048(signature);
+    let result = modpow_65537_prepared(&sig_limbs, prepared);
+    let result_bytes = limbs_to_bytes_be_2048(&result);
+    verify_pkcs1v15_sha256_encoded(&result_bytes, message_hash)
+}
+
+pub fn verify_pkcs1v15_sha256_encoded(
+    result_bytes: &[u8; 256],
+    message_hash: &[u8; 32],
+) -> bool {
     // Check PKCS#1 v1.5 padding:
     // Expected format: 0x00 0x01 [0xFF padding] 0x00 [DigestInfo] [hash]
     // DigestInfo for SHA-256 (DER encoded):
@@ -63,7 +83,7 @@ pub fn rsa_verify_pkcs1v15_sha256(
 }
 
 /// Convert big-endian bytes to little-endian limbs.
-fn bytes_be_to_limbs(bytes: &[u8; 256]) -> [Limb; LIMBS_2048] {
+pub fn bytes_be_to_limbs_2048(bytes: &[u8; 256]) -> [Limb; LIMBS_2048] {
     let mut limbs = [0 as Limb; LIMBS_2048];
     for i in 0..LIMBS_2048 {
         let mut buf = [0u8; LIMB_BYTES];
@@ -81,7 +101,7 @@ fn bytes_be_to_limbs(bytes: &[u8; 256]) -> [Limb; LIMBS_2048] {
 }
 
 /// Convert little-endian limbs to big-endian bytes.
-fn limbs_to_bytes_be(limbs: &[Limb; LIMBS_2048]) -> [u8; 256] {
+pub fn limbs_to_bytes_be_2048(limbs: &[Limb; LIMBS_2048]) -> [u8; 256] {
     let mut bytes = [0u8; 256];
     for i in 0..LIMBS_2048 {
         let le = limbs[i].to_le_bytes();
@@ -90,6 +110,18 @@ fn limbs_to_bytes_be(limbs: &[Limb; LIMBS_2048]) -> [u8; 256] {
         }
     }
     bytes
+}
+
+/// Decode a little-endian serialized Montgomery inverse.
+pub fn n0inv_from_le_bytes(bytes: &[u8; 8]) -> Limb {
+    #[cfg(feature = "rv64")]
+    {
+        u64::from_le_bytes(*bytes)
+    }
+    #[cfg(not(feature = "rv64"))]
+    {
+        u32::from_le_bytes(bytes[..4].try_into().unwrap())
+    }
 }
 
 /// Parse a PKCS#1 DER-encoded RSA public key and extract the modulus as limbs.
@@ -141,7 +173,7 @@ pub fn parse_pkcs1_modulus(der: &[u8]) -> Option<[Limb; LIMBS_2048]> {
 
     // Convert big-endian modulus bytes to little-endian limbs
     let n_be: &[u8; 256] = n_bytes.try_into().ok()?;
-    Some(bytes_be_to_limbs(n_be))
+    Some(bytes_be_to_limbs_2048(n_be))
 }
 
 /// Parse a DER length field. Returns (length, bytes_consumed).
@@ -236,8 +268,8 @@ mod tests {
         for (i, b) in bytes.iter_mut().enumerate() {
             *b = i as u8;
         }
-        let limbs = bytes_be_to_limbs(&bytes);
-        let back = limbs_to_bytes_be(&limbs);
+        let limbs = bytes_be_to_limbs_2048(&bytes);
+        let back = limbs_to_bytes_be_2048(&limbs);
         assert_eq!(bytes, back);
     }
 
@@ -275,10 +307,45 @@ mod tests {
         let result = rsa_verify_pkcs1v15_sha256(&n_limbs, &sig_arr, &hash);
         assert!(result, "RSA signature should verify");
 
+        let prepared = PreparedModulus2048::from_modulus(n_limbs)
+            .validate()
+            .unwrap();
+        let prepared_result = rsa_verify_prepared_pkcs1v15_sha256(&prepared, &sig_arr, &hash);
+        assert!(prepared_result, "prepared RSA signature should verify");
+
         // Verify with wrong hash fails
         let mut bad_hash = hash;
         bad_hash[0] ^= 0xFF;
         let bad_result = rsa_verify_pkcs1v15_sha256(&n_limbs, &sig_arr, &bad_hash);
         assert!(!bad_result, "RSA signature should NOT verify with wrong hash");
+    }
+
+    #[test]
+    fn test_prepared_rejects_bad_rr() {
+        use rsa::pkcs1::EncodeRsaPublicKey;
+        use rsa::pkcs1v15::SigningKey;
+        use rsa::signature::Signer;
+        use sha2::Sha256;
+
+        let mut rng = rand::thread_rng();
+        let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+        let public_key = rsa::RsaPublicKey::from(&private_key);
+
+        let message = b"prepared context negative test";
+        let mut hasher = <Sha256 as sha2::Digest>::new();
+        sha2::Digest::update(&mut hasher, message);
+        let hash: [u8; 32] = sha2::Digest::finalize(hasher).into();
+
+        let signature = SigningKey::<Sha256>::new(private_key).sign(message);
+        let sig_bytes: alloc::vec::Vec<u8> = rsa::signature::SignatureEncoding::to_vec(&signature);
+        let mut sig_arr = [0u8; 256];
+        sig_arr.copy_from_slice(&sig_bytes);
+
+        let der = public_key.to_pkcs1_der().unwrap();
+        let modulus = parse_pkcs1_modulus(der.as_bytes()).unwrap();
+        let mut prepared = PreparedModulus2048::from_modulus(modulus);
+        prepared.rr[0] ^= 1;
+
+        assert!(prepared.validate().is_none());
     }
 }

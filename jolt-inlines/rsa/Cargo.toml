@@ -8,7 +8,7 @@ license = "MIT"
 [features]
 default = []
 host = ["dep:ctor", "dep:tracer", "dep:tracing"]
-rv64 = ["tracer/rv64"]
+rv64 = ["tracer?/rv64"]
 
 [dependencies]
 ctor = { version = "0.2", optional = true }
@@ -23,3 +23,4 @@ num-traits = "0.2"
 num-integer = "0.1"
 rsa = { version = "=0.9.6" }
 sha2 = { version = "0.10", features = ["oid"] }
+rand_chacha.workspace = true

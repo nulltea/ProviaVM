@@ -2,6 +2,7 @@
 use jolt_inlines_sha2 as _;
 use jolt_inlines_bigint as _;
 use jolt_inlines_rsa as _;
+use provia_jolt_sdk::TrustedAdvice;
 
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -30,7 +31,9 @@ use jolt_core::zkvm::state_manager::StateManager as VanillaStateManager;
 use jolt_core::zkvm::state_manager::{ProofData, ProofKeys};
 use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
 use jolt_core::zkvm::{JoltProverPreprocessing, JoltRV64IMAC, JoltVerifierPreprocessing};
+use num_bigint::BigUint;
 use tracer::JoltDevice;
+use zkemail_core::{DKIMInput, Rsa65537Witness2048, RsaModStepWitness2048, RsaStepOp};
 
 type F = Fr;
 type PCS = DoryCommitmentScheme;
@@ -58,11 +61,7 @@ fn use_zkemail_fixture() -> bool {
 
 fn build_program() -> Program {
     if use_zkemail_fixture() {
-        let mut program = Program::new("zkemail-guest");
-        program.set_stack_size(131072);
-        program.set_memory_size(1048576);
-        program.set_max_input_size(65536);
-        program
+        configure_zkemail_program()
     } else if use_sha2_fixture() {
         let mut program = Program::new("sha2-chain-guest");
         program.set_stack_size(65536);
@@ -75,45 +74,109 @@ fn build_program() -> Program {
     }
 }
 
-/// Returns (public_inputs, untrusted_advice).
-fn build_inputs() -> (Vec<u8>, Vec<u8>) {
+/// Returns (public_inputs, untrusted_advice, trusted_advice).
+fn build_inputs() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     if use_zkemail_fixture() {
-        let advice = postcard::to_stdvec(&build_zkemail_input()).unwrap();
-        (vec![], advice)
+        let (input, prepared) = build_zkemail_fixture();
+        (
+            vec![],
+            postcard::to_stdvec(&input).unwrap(),
+            postcard::to_stdvec(&TrustedAdvice::from(prepared)).unwrap(),
+        )
     } else if use_sha2_fixture() {
         let mut advice = postcard::to_stdvec(&[5u8; 32]).unwrap();
         advice.append(&mut postcard::to_stdvec(&1u32).unwrap());
-        (vec![], advice)
+        (vec![], advice, vec![])
     } else {
-        (postcard::to_stdvec(&9u32).unwrap(), vec![])
+        (postcard::to_stdvec(&9u32).unwrap(), vec![], vec![])
     }
 }
 
+fn left_pad_be_256(bytes: &[u8]) -> [u8; 256] {
+    let mut out = [0u8; 256];
+    let start = 256 - bytes.len();
+    out[start..].copy_from_slice(bytes);
+    out
+}
+
 /// Build a synthetic DKIMInput with a valid RSA-2048 PKCS#1v15-SHA256 signature.
-fn build_zkemail_input() -> zkemail_core::DKIMInput {
+fn build_zkemail_fixture() -> (DKIMInput, Rsa65537Witness2048) {
+    use jolt_inlines_rsa::verify::{
+        limbs_to_bytes_be_2048,
+        parse_pkcs1_modulus,
+        verify_pkcs1v15_sha256_encoded,
+    };
     use rsa::pkcs1::EncodeRsaPublicKey;
     use rsa::signature::{SignatureEncoding, Signer};
+    use sha2::Digest;
 
     let mut rng = ChaCha12Rng::seed_from_u64(42);
     let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
     let public_key = rsa::RsaPublicKey::from(&private_key);
-
     let signed_headers = b"from:test@example.com\r\nto:bob@example.com\r\n".to_vec();
-
-    // Sign the headers with PKCS#1 v1.5 SHA-256
     let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
     let signature_obj = signing_key.sign(&signed_headers);
     let signature = signature_obj.to_vec();
-
-    // Export public key in PKCS#1 DER format
     let public_key_der = public_key.to_pkcs1_der().unwrap().to_vec();
 
-    zkemail_core::DKIMInput {
+    let input = DKIMInput {
         signed_headers,
         signature,
         public_key_der,
         from_domain: b"example.com".to_vec(),
+    };
+
+    let modulus = parse_pkcs1_modulus(&input.public_key_der).unwrap();
+    let modulus_be = limbs_to_bytes_be_2048(&modulus);
+    let modulus_bn = BigUint::from_bytes_be(&modulus_be);
+    let signature_be: [u8; 256] = input.signature.clone().try_into().unwrap();
+    let signature_bn = BigUint::from_bytes_be(&signature_be);
+
+    let mut witness = Rsa65537Witness2048 {
+        modulus_be: modulus_be.to_vec(),
+        signature_be: signature_be.to_vec(),
+        steps: vec![
+            RsaModStepWitness2048 {
+                op: RsaStepOp::Square,
+                quotient_be: vec![0u8; 256],
+                remainder_be: vec![0u8; 256],
+            };
+            17
+        ],
+    };
+
+    let header_hash: [u8; 32] = sha2::Sha256::digest(&input.signed_headers).into();
+    let mut current = signature_bn.clone();
+    for step_idx in 0..witness.steps.len() {
+        let (lhs, rhs, op) = if step_idx < 16 {
+            (&current, &current, RsaStepOp::Square)
+        } else {
+            (&current, &signature_bn, RsaStepOp::MulBase)
+        };
+        let product = lhs * rhs;
+        let quotient = &product / &modulus_bn;
+        let remainder = &product % &modulus_bn;
+        witness.steps[step_idx] = RsaModStepWitness2048 {
+            op,
+            quotient_be: left_pad_be_256(&quotient.to_bytes_be()).to_vec(),
+            remainder_be: left_pad_be_256(&remainder.to_bytes_be()).to_vec(),
+        };
+        current = remainder;
     }
+    let final_be = left_pad_be_256(&current.to_bytes_be());
+    assert!(verify_pkcs1v15_sha256_encoded(&final_be, &header_hash));
+
+    (input, witness)
+}
+
+fn configure_zkemail_program() -> Program {
+    let mut program = Program::new("zkemail-guest");
+    program.set_func("verify_dkim");
+    program.set_stack_size(131072);
+    program.set_memory_size(1048576);
+    program.set_max_input_size(65536);
+    program.set_max_trusted_advice_size(16384);
+    program
 }
 
 fn build_public_fixture(
@@ -127,11 +190,11 @@ fn build_public_fixture(
     usize,
 ) {
     let mut program = build_program();
-    let (inputs, untrusted_advice) = build_inputs();
+    let (inputs, untrusted_advice, trusted_advice) = build_inputs();
 
     let mut rng = ChaCha12Rng::seed_from_u64(0);
     let (bytecode, memory_init, io_device, shares) =
-        generate_trace_shares(&mut program, &inputs, &untrusted_advice, &[], &mut rng);
+        generate_trace_shares(&mut program, &inputs, &untrusted_advice, &trusted_advice, &mut rng);
 
     // Shares are already padded to next power of 2 by generate_trace_shares.
     let padded_len = shares[0].0.len();
@@ -384,17 +447,19 @@ fn dag_zk_tampered_stage5_hidden_claim_fails() {
 
 #[test]
 fn zkemail_trace_only() {
-    let mut program = Program::new("zkemail-guest");
-    program.set_stack_size(131072);
-    program.set_memory_size(1048576);
-    program.set_max_input_size(65536);
+    let mut program = configure_zkemail_program();
 
-    let advice = postcard::to_stdvec(&build_zkemail_input()).unwrap();
-    eprintln!("Serialized advice size: {} bytes", advice.len());
+    let (input, prepared) = build_zkemail_fixture();
+    let inputs = postcard::to_stdvec(&input).unwrap();
+    let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(prepared)).unwrap();
+    eprintln!("Serialized input size: {} bytes", inputs.len());
+    eprintln!("Serialized trusted advice size: {} bytes", trusted_advice.len());
 
-    let (trace, _memory, io_device) = program.trace(&[], &advice, &[]);
+    let (trace, _memory, io_device) = program.trace(&[], &inputs, &trusted_advice);
     eprintln!("Trace length: {}", trace.len());
+    eprintln!("Panic: {}", io_device.panic);
     eprintln!("Outputs: {:?}", &io_device.outputs[..io_device.outputs.len().min(64)]);
+    assert!(!io_device.panic, "zkemail guest panicked");
 }
 
 fn rep3_proof_twist_switch_index(padded_len: usize) -> usize {

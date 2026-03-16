@@ -3,6 +3,7 @@
 use crate::{Limb, LIMBS_2048, LIMB_BYTES};
 use crate::mont_mul::exec::montgomery_mul;
 use crate::mont_mul::sdk::compute_n0inv;
+use crate::modpow::{compute_r_mod, PreparedModulus2048};
 
 use tracer::emulator::cpu::Xlen;
 use tracer::utils::inline_test_harness::{InlineMemoryLayout, InlineTestHarness};
@@ -196,4 +197,266 @@ fn test_trace_montgomery() {
     result.copy_from_slice(&result_vec);
 
     assert_eq!(result, expected, "Trace-based Montgomery multiply should match exec");
+}
+
+#[test]
+fn test_trace_montgomery_rr_times_one_fixture() {
+    use rand::{Rng, SeedableRng};
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let mut modulus = [0 as Limb; LIMBS_2048];
+    for limb in modulus.iter_mut() {
+        *limb = rng.gen();
+    }
+    modulus[0] |= 1;
+    modulus[LIMBS_2048 - 1] |= 1 << (core::mem::size_of::<Limb>() * 8 - 1);
+
+    let prepared = PreparedModulus2048::from_modulus(modulus);
+    let x = prepared.rr;
+    let mut y = [0 as Limb; LIMBS_2048];
+    y[0] = 1;
+    let expected = compute_r_mod(&modulus);
+    let k = compute_n0inv(modulus[0]);
+
+    let x_bytes = LIMBS_2048 * LIMB_BYTES;
+    let y_bytes = x_bytes;
+    let ctx_bytes = x_bytes * 3 + LIMB_BYTES * 2;
+
+    let layout = InlineMemoryLayout::two_inputs(x_bytes, y_bytes, ctx_bytes);
+    #[cfg(feature = "rv64")]
+    let xlen = Xlen::Bit64;
+    #[cfg(not(feature = "rv64"))]
+    let xlen = Xlen::Bit32;
+    let mut harness = InlineTestHarness::new(layout, xlen);
+    harness.setup_registers();
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_input32(&x);
+    #[cfg(feature = "rv64")]
+    harness.load_input64(&x);
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_input2_32(&y);
+    #[cfg(feature = "rv64")]
+    harness.load_input2_64(&y);
+
+    let ctx_limbs = LIMBS_2048 + LIMBS_2048 + 1 + LIMBS_2048 + 1;
+    let mut ctx_data = vec![0 as Limb; ctx_limbs];
+    ctx_data[LIMBS_2048..2 * LIMBS_2048].copy_from_slice(&modulus);
+    ctx_data[2 * LIMBS_2048] = k;
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_state32(&ctx_data);
+    #[cfg(feature = "rv64")]
+    harness.load_state64(&ctx_data);
+
+    #[cfg(feature = "rv64")]
+    {
+        let instr = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_FUNCT3,
+            crate::MONT_MUL_2048_FUNCT7,
+        );
+        harness.execute_inline(instr);
+    }
+    #[cfg(not(feature = "rv64"))]
+    {
+        let instr_p1 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P1_FUNCT3,
+            crate::MONT_MUL_2048_P1_FUNCT7,
+        );
+        harness.execute_inline(instr_p1);
+        let instr_p2 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P2_FUNCT3,
+            crate::MONT_MUL_2048_P2_FUNCT7,
+        );
+        harness.execute_inline(instr_p2);
+    }
+
+    #[cfg(not(feature = "rv64"))]
+    let result_vec = harness.read_output32(LIMBS_2048);
+    #[cfg(feature = "rv64")]
+    let result_vec = harness.read_output64(LIMBS_2048);
+
+    let mut result = [0 as Limb; LIMBS_2048];
+    result.copy_from_slice(&result_vec);
+
+    assert_eq!(result, expected, "Trace-based rr * 1 Montgomery multiply should equal R mod n");
+}
+
+#[test]
+fn test_trace_montgomery_rr_times_one_rsa_fixture() {
+    use crate::verify::parse_pkcs1_modulus;
+    use rand::{rngs::StdRng, SeedableRng};
+    use rsa::pkcs1::EncodeRsaPublicKey;
+
+    let mut rng = StdRng::seed_from_u64(42);
+    let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+    let public_key = rsa::RsaPublicKey::from(&private_key);
+    let public_key_der = public_key.to_pkcs1_der().unwrap();
+    let modulus = parse_pkcs1_modulus(public_key_der.as_bytes()).unwrap();
+
+    let prepared = PreparedModulus2048::from_modulus(modulus);
+    let x = prepared.rr;
+    let mut y = [0 as Limb; LIMBS_2048];
+    y[0] = 1;
+    let expected = compute_r_mod(&modulus);
+    let k = compute_n0inv(modulus[0]);
+
+    let x_bytes = LIMBS_2048 * LIMB_BYTES;
+    let y_bytes = x_bytes;
+    let ctx_bytes = x_bytes * 3 + LIMB_BYTES * 2;
+
+    let layout = InlineMemoryLayout::two_inputs(x_bytes, y_bytes, ctx_bytes);
+    #[cfg(feature = "rv64")]
+    let xlen = Xlen::Bit64;
+    #[cfg(not(feature = "rv64"))]
+    let xlen = Xlen::Bit32;
+    let mut harness = InlineTestHarness::new(layout, xlen);
+    harness.setup_registers();
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_input32(&x);
+    #[cfg(feature = "rv64")]
+    harness.load_input64(&x);
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_input2_32(&y);
+    #[cfg(feature = "rv64")]
+    harness.load_input2_64(&y);
+
+    let ctx_limbs = LIMBS_2048 + LIMBS_2048 + 1 + LIMBS_2048 + 1;
+    let mut ctx_data = vec![0 as Limb; ctx_limbs];
+    ctx_data[LIMBS_2048..2 * LIMBS_2048].copy_from_slice(&modulus);
+    ctx_data[2 * LIMBS_2048] = k;
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_state32(&ctx_data);
+    #[cfg(feature = "rv64")]
+    harness.load_state64(&ctx_data);
+
+    #[cfg(feature = "rv64")]
+    {
+        let instr = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_FUNCT3,
+            crate::MONT_MUL_2048_FUNCT7,
+        );
+        harness.execute_inline(instr);
+    }
+    #[cfg(not(feature = "rv64"))]
+    {
+        let instr_p1 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P1_FUNCT3,
+            crate::MONT_MUL_2048_P1_FUNCT7,
+        );
+        harness.execute_inline(instr_p1);
+        let instr_p2 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P2_FUNCT3,
+            crate::MONT_MUL_2048_P2_FUNCT7,
+        );
+        harness.execute_inline(instr_p2);
+    }
+
+    #[cfg(not(feature = "rv64"))]
+    let result_vec = harness.read_output32(LIMBS_2048);
+    #[cfg(feature = "rv64")]
+    let result_vec = harness.read_output64(LIMBS_2048);
+
+    let mut result = [0 as Limb; LIMBS_2048];
+    result.copy_from_slice(&result_vec);
+
+    assert_eq!(result, expected, "Trace-based rr * 1 Montgomery multiply should equal R mod n for RSA fixture");
+}
+
+#[test]
+fn test_trace_montgomery_rr_times_one_worker_fixture() {
+    use crate::verify::parse_pkcs1_modulus;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha12Rng;
+    use rsa::pkcs1::EncodeRsaPublicKey;
+
+    let mut rng = ChaCha12Rng::seed_from_u64(42);
+    let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
+    let public_key = rsa::RsaPublicKey::from(&private_key);
+    let public_key_der = public_key.to_pkcs1_der().unwrap();
+    let modulus = parse_pkcs1_modulus(public_key_der.as_bytes()).unwrap();
+
+    let prepared = PreparedModulus2048::from_modulus(modulus);
+    let x = prepared.rr;
+    let mut y = [0 as Limb; LIMBS_2048];
+    y[0] = 1;
+    let expected = compute_r_mod(&modulus);
+    let k = compute_n0inv(modulus[0]);
+
+    let x_bytes = LIMBS_2048 * LIMB_BYTES;
+    let y_bytes = x_bytes;
+    let ctx_bytes = x_bytes * 3 + LIMB_BYTES * 2;
+
+    let layout = InlineMemoryLayout::two_inputs(x_bytes, y_bytes, ctx_bytes);
+    #[cfg(feature = "rv64")]
+    let xlen = Xlen::Bit64;
+    #[cfg(not(feature = "rv64"))]
+    let xlen = Xlen::Bit32;
+    let mut harness = InlineTestHarness::new(layout, xlen);
+    harness.setup_registers();
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_input32(&x);
+    #[cfg(feature = "rv64")]
+    harness.load_input64(&x);
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_input2_32(&y);
+    #[cfg(feature = "rv64")]
+    harness.load_input2_64(&y);
+
+    let ctx_limbs = LIMBS_2048 + LIMBS_2048 + 1 + LIMBS_2048 + 1;
+    let mut ctx_data = vec![0 as Limb; ctx_limbs];
+    ctx_data[LIMBS_2048..2 * LIMBS_2048].copy_from_slice(&modulus);
+    ctx_data[2 * LIMBS_2048] = k;
+
+    #[cfg(not(feature = "rv64"))]
+    harness.load_state32(&ctx_data);
+    #[cfg(feature = "rv64")]
+    harness.load_state64(&ctx_data);
+
+    #[cfg(feature = "rv64")]
+    {
+        let instr = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_FUNCT3,
+            crate::MONT_MUL_2048_FUNCT7,
+        );
+        harness.execute_inline(instr);
+    }
+    #[cfg(not(feature = "rv64"))]
+    {
+        let instr_p1 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P1_FUNCT3,
+            crate::MONT_MUL_2048_P1_FUNCT7,
+        );
+        harness.execute_inline(instr_p1);
+        let instr_p2 = InlineTestHarness::create_default_instruction(
+            crate::INLINE_OPCODE,
+            crate::MONT_MUL_2048_P2_FUNCT3,
+            crate::MONT_MUL_2048_P2_FUNCT7,
+        );
+        harness.execute_inline(instr_p2);
+    }
+
+    #[cfg(not(feature = "rv64"))]
+    let result_vec = harness.read_output32(LIMBS_2048);
+    #[cfg(feature = "rv64")]
+    let result_vec = harness.read_output64(LIMBS_2048);
+
+    let mut result = [0 as Limb; LIMBS_2048];
+    result.copy_from_slice(&result_vec);
+
+    assert_eq!(result, expected, "Trace-based rr * 1 Montgomery multiply should equal R mod n for worker fixture");
 }

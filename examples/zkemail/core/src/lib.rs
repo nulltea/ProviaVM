@@ -18,6 +18,29 @@ pub struct DKIMInput {
     pub from_domain: Vec<u8>,
 }
 
+/// Operation performed at one step of the RSA-65537 addition chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RsaStepOp {
+    Square,
+    MulBase,
+}
+
+/// One modular reduction witness row for RSA-2048.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RsaModStepWitness2048 {
+    pub op: RsaStepOp,
+    pub quotient_be: Vec<u8>,
+    pub remainder_be: Vec<u8>,
+}
+
+/// Host-prepared RSA witness data committed as trusted advice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rsa65537Witness2048 {
+    pub modulus_be: Vec<u8>,
+    pub signature_be: Vec<u8>,
+    pub steps: Vec<RsaModStepWitness2048>,
+}
+
 /// Output committed by the guest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DKIMOutput {

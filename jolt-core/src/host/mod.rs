@@ -11,6 +11,7 @@ pub mod program;
 pub struct Program {
     guest: String,
     func: Option<String>,
+    features: Vec<String>,
     memory_size: u64,
     stack_size: u64,
     max_input_size: u64,

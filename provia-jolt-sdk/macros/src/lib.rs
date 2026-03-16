@@ -255,6 +255,7 @@ impl MacroBuilder {
         let guest_name = self.get_guest_name();
         let imports = self.make_imports();
         let set_std = self.make_set_std();
+        let set_guest_features = self.make_set_guest_features();
 
         let fn_name = self.get_func_name();
         let fn_name_str = fn_name.to_string();
@@ -284,6 +285,7 @@ impl MacroBuilder {
 
                 let mut program = Program::new(#guest_name);
                 program.set_func(#fn_name_str);
+                #set_guest_features
                 #set_std
                 #set_mem_size
 
@@ -304,6 +306,7 @@ impl MacroBuilder {
         let guest_name = self.get_guest_name();
         let set_mem_size = self.make_set_linker_parameters();
         let set_std = self.make_set_std();
+        let set_guest_features = self.make_set_guest_features();
 
         let fn_name = self.get_func_name();
         let fn_name_str = fn_name.to_string();
@@ -333,6 +336,7 @@ impl MacroBuilder {
                 let mut program = Program::new(#guest_name);
                 let path = std::path::PathBuf::from(target_dir);
                 program.set_func(#fn_name_str);
+                #set_guest_features
                 #set_std
                 #set_mem_size
 
@@ -354,6 +358,7 @@ impl MacroBuilder {
         let guest_name = self.get_guest_name();
         let set_mem_size = self.make_set_linker_parameters();
         let set_std = self.make_set_std();
+        let set_guest_features = self.make_set_guest_features();
 
         let channel = if attributes.nightly {
             quote! { "nightly" }
@@ -370,6 +375,7 @@ impl MacroBuilder {
 
                 let mut program = Program::new(#guest_name);
                 program.set_func(#fn_name_str);
+                #set_guest_features
                 #set_std
                 #set_mem_size
                 program.build_with_channel(target_dir, #channel);
@@ -959,6 +965,13 @@ impl MacroBuilder {
 
     fn get_func_name(&self) -> &Ident {
         &self.func.sig.ident
+    }
+
+    fn make_set_guest_features(&self) -> TokenStream2 {
+        quote! {
+            #[cfg(feature = "rv64")]
+            program.add_feature("rv64");
+        }
     }
 
     fn get_guest_name(&self) -> String {
