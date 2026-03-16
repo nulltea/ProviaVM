@@ -2727,39 +2727,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "provia-jolt-sdk"
-version = "0.1.0"
-dependencies = [
- "ark-bn254",
- "ark-ec",
- "bincode",
- "eyre",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "jolt-core",
- "jolt-tracer",
- "postcard",
- "provia-jolt-sdk-macros",
- "provia-worker",
- "rand 0.8.5",
- "rustls",
- "serde",
-]
-
-[[package]]
-name = "provia-jolt-sdk-macros"
-version = "0.1.0"
-dependencies = [
- "ark-serialize",
- "ark-serialize-derive",
- "jolt-tracer",
- "proc-macro2",
- "quote",
- "serde",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "provia-worker"
 version = "0.1.0"
 dependencies = [
@@ -2778,9 +2745,6 @@ dependencies = [
  "eyre",
  "itertools 0.12.1",
  "jolt-core",
- "jolt-inlines-bigint",
- "jolt-inlines-rsa",
- "jolt-inlines-sha2",
  "jolt-tracer",
  "libc",
  "mpc-core",
@@ -2792,17 +2756,14 @@ dependencies = [
  "paste",
  "postcard",
  "provia-coordinator",
- "provia-jolt-sdk",
  "provia-worker",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rayon",
  "rcgen",
- "rsa",
  "rustls",
  "serde",
  "serde_json",
- "sha2",
  "strum",
  "strum_macros",
  "tikv-jemalloc-ctl",
@@ -2815,8 +2776,6 @@ dependencies = [
  "tracing-subscriber",
  "tracing-tracy",
  "tracy-client",
- "zkemail-core",
- "zkpassport-core",
 ]
 
 [[package]]
@@ -5005,22 +4964,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "zkemail-core"
-version = "0.1.0"
-dependencies = [
- "jolt-inlines-rsa",
- "serde",
-]
-
-[[package]]
-name = "zkpassport-core"
-version = "0.1.0"
-dependencies = [
- "jolt-inlines-rsa",
- "serde",
 ]
 
 [[package]]

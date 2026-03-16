@@ -19,19 +19,19 @@ pub use modpow::{
     PreparedModulus2048,
     ValidatedPreparedModulus2048,
 };
+pub use verify::verify_pkcs1v15_sha256_with_witness;
 pub use witness::{
     Bytes2048,
-    Rsa65537TrustedAdviceWitness2048,
-    RsaReductionOp,
-    RsaReductionStep2048,
-    verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256,
+    Step2048,
+    StepOp,
+    Witness2048,
 };
 #[cfg(feature = "host")]
 pub use witness::{
-    build_rsa65537_trusted_advice_witness,
-    trusted_advice_witness_seed_from_commitment,
-    trusted_advice_witness_seed_from_commitment_bytes,
-    validate_rsa65537_trusted_advice_witness,
+    build_witness_2048,
+    validate_witness_2048,
+    witness_seed_from_commitment,
+    witness_seed_from_commitment_bytes,
 };
 
 /// Limb type: u64 on rv64, u32 on rv32.

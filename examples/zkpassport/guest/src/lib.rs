@@ -4,11 +4,11 @@ extern crate alloc;
 
 use jolt::TrustedAdvice;
 use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
-use jolt_inlines_rsa::{Bytes2048, verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256};
+use jolt_inlines_rsa::{Bytes2048, verify_pkcs1v15_sha256_with_witness};
 use jolt_inlines_sha2::Sha256;
 use zkpassport_core::{
     contains_subsequence, is_over_18, parse_td3_mrz, unwrap_dg1_to_mrz,
-    PassportInput, PassportOutput, Rsa65537TrustedAdviceWitness2048,
+    PassportInput, PassportOutput, Witness2048,
 };
 
 #[jolt::provable(
@@ -18,7 +18,7 @@ use zkpassport_core::{
     max_trusted_advice_size = 16384
 )]
 fn verify_passport(
-    witness: TrustedAdvice<Rsa65537TrustedAdviceWitness2048>,
+    witness: TrustedAdvice<Witness2048>,
     input: PassportInput,
 ) -> PassportOutput {
     // 1. Hash DG1
@@ -40,7 +40,7 @@ fn verify_passport(
     assert!(input.signature.len() == 256, "signature must be 256 bytes");
     let signature_bytes = Bytes2048(input.signature.as_slice().try_into().expect("signature length"));
 
-    let signature_verified = verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+    let signature_verified = verify_pkcs1v15_sha256_with_witness(
         &witness,
         &modulus,
         &signature_bytes,

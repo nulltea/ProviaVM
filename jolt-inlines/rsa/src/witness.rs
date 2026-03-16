@@ -5,7 +5,7 @@ use serde::de::{Error as DeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
-use crate::verify::{bytes_be_to_limbs_2048, limbs_to_bytes_be_2048, verify_pkcs1v15_sha256_encoded};
+use crate::verify::{bytes_be_to_limbs_2048, limbs_to_bytes_be_2048};
 use crate::{Limb, LIMBS_2048};
 
 const RSA_CHECK_PRIMES: [(u32, u32); 4] = [
@@ -162,23 +162,23 @@ impl<'de> Deserialize<'de> for Limbs2048 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RsaReductionOp {
+pub enum StepOp {
     Square,
     MulBase,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RsaReductionStep2048 {
-    pub op: RsaReductionOp,
+pub struct Step2048 {
+    pub op: StepOp,
     pub quotient_residues: [u32; 4],
     pub remainder_residues: [u32; 4],
     pub remainder_limbs: Limbs2048,
 }
 
-impl Default for RsaReductionStep2048 {
+impl Default for Step2048 {
     fn default() -> Self {
         Self {
-            op: RsaReductionOp::Square,
+            op: StepOp::Square,
             quotient_residues: [0u32; 4],
             remainder_residues: [0u32; 4],
             remainder_limbs: Limbs2048::default(),
@@ -187,21 +187,21 @@ impl Default for RsaReductionStep2048 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Rsa65537TrustedAdviceWitness2048 {
+pub struct Witness2048 {
     pub modulus: Bytes2048,
     pub signature: Bytes2048,
-    pub steps: [RsaReductionStep2048; 17],
+    pub steps: [Step2048; 17],
 }
 
 #[cfg(feature = "host")]
-pub fn trusted_advice_witness_seed_from_commitment_bytes(bytes: &[u8]) -> [u8; 32] {
+pub fn witness_seed_from_commitment_bytes(bytes: &[u8]) -> [u8; 32] {
     let mut seed_input = b"rsa-witness-challenge-v1".to_vec();
     seed_input.extend_from_slice(bytes);
     sha2::Sha256::digest(&seed_input).into()
 }
 
 #[cfg(feature = "host")]
-pub fn trusted_advice_witness_seed_from_commitment<C>(
+pub fn witness_seed_from_commitment<C>(
     commitment: &C,
 ) -> Result<[u8; 32], ark_serialize::SerializationError>
 where
@@ -209,33 +209,33 @@ where
 {
     let mut bytes = Vec::new();
     commitment.serialize_compressed(&mut bytes)?;
-    Ok(trusted_advice_witness_seed_from_commitment_bytes(&bytes))
+    Ok(witness_seed_from_commitment_bytes(&bytes))
 }
 
 #[cfg(feature = "host")]
-pub fn build_rsa65537_trusted_advice_witness(
+pub fn build_witness_2048(
     modulus: &[Limb; LIMBS_2048],
     signature: &Bytes2048,
-) -> Rsa65537TrustedAdviceWitness2048 {
+) -> Witness2048 {
     use num_bigint::BigUint;
 
     let modulus_bytes = Bytes2048::from(limbs_to_bytes_be_2048(modulus));
     let modulus_bn = BigUint::from_bytes_be(&modulus_bytes.0);
     let signature_bn = BigUint::from_bytes_be(&signature.0);
-    let mut steps = [RsaReductionStep2048::default(); 17];
+    let mut steps = [Step2048::default(); 17];
     let mut current = signature_bn.clone();
 
     for (step_idx, step) in steps.iter_mut().enumerate() {
         let (lhs, rhs, op) = if step_idx < 16 {
-            (&current, &current, RsaReductionOp::Square)
+            (&current, &current, StepOp::Square)
         } else {
-            (&current, &signature_bn, RsaReductionOp::MulBase)
+            (&current, &signature_bn, StepOp::MulBase)
         };
         let product = lhs * rhs;
         let quotient = &product / &modulus_bn;
         let remainder = &product % &modulus_bn;
         let remainder_limbs = Limbs2048(biguint_to_limbs_2048(&remainder));
-        *step = RsaReductionStep2048 {
+        *step = Step2048 {
             op,
             quotient_residues: Residues2048::from_bytes(&biguint_to_bytes2048(&quotient)).0,
             remainder_residues: Residues2048::from_limbs(&remainder_limbs.0).0,
@@ -244,7 +244,7 @@ pub fn build_rsa65537_trusted_advice_witness(
         current = remainder;
     }
 
-    Rsa65537TrustedAdviceWitness2048 {
+    Witness2048 {
         modulus: modulus_bytes,
         signature: *signature,
         steps,
@@ -252,10 +252,10 @@ pub fn build_rsa65537_trusted_advice_witness(
 }
 
 #[cfg(feature = "host")]
-pub fn validate_rsa65537_trusted_advice_witness(
+pub fn validate_witness_2048(
     modulus: &[Limb; LIMBS_2048],
     signature: &Bytes2048,
-    witness: &Rsa65537TrustedAdviceWitness2048,
+    witness: &Witness2048,
 ) -> bool {
     use num_bigint::BigUint;
 
@@ -270,9 +270,9 @@ pub fn validate_rsa65537_trusted_advice_witness(
 
     for (step_idx, step) in witness.steps.iter().enumerate() {
         let expected_op = if step_idx < 16 {
-            RsaReductionOp::Square
+            StepOp::Square
         } else {
-            RsaReductionOp::MulBase
+            StepOp::MulBase
         };
         if step.op != expected_op {
             return false;
@@ -297,84 +297,69 @@ pub fn validate_rsa65537_trusted_advice_witness(
     true
 }
 
-pub fn verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
-    witness: &Rsa65537TrustedAdviceWitness2048,
-    modulus: &[Limb; LIMBS_2048],
-    signature: &Bytes2048,
-    challenge_seed: &[u8; 32],
-    message_hash: &[u8; 32],
-) -> bool {
-    let modulus_bytes = Bytes2048::from(limbs_to_bytes_be_2048(modulus));
-    if witness.modulus != modulus_bytes || witness.signature != *signature {
-        return false;
-    }
-
-    let modulus_residues = Residues2048::from_bytes(&witness.modulus);
-    let signature_residues = Residues2048::from_bytes(&witness.signature);
-    let mut current_residues = signature_residues;
-    let mut aggregated_error = [0u32; 4];
-    let mut seeded_weight_state = seeded_weight_state_init(challenge_seed);
-    let sampled_step_checks = sampled_step_checks(challenge_seed);
-    let modulus_limbs = bytes_be_to_limbs_2048(modulus_bytes.as_array());
-
-    for (step_idx, step) in witness.steps.iter().enumerate() {
-        let expected_op = if step_idx < 16 {
-            RsaReductionOp::Square
-        } else {
-            RsaReductionOp::MulBase
-        };
-        if step.op != expected_op || !limbs_lt(&step.remainder_limbs.0, &modulus_limbs) {
-            return false;
-        }
-
-        let rhs_residues = if step_idx < 16 { current_residues } else { signature_residues };
-        let remainder_residues = Residues2048(step.remainder_residues);
-        if sampled_step_checks[step_idx]
-            && Residues2048::from_limbs(&step.remainder_limbs.0).0 != step.remainder_residues
-        {
-            return false;
-        }
-
-        accumulate_residue_error(
-            &mut aggregated_error,
-            &seeded_weights(&seeded_weight_state),
-            &current_residues,
-            &rhs_residues,
-            &Residues2048(step.quotient_residues),
-            &modulus_residues,
-            &remainder_residues,
-        );
-        advance_seeded_weight_state(&mut seeded_weight_state, step_idx);
-
-        current_residues = remainder_residues;
-    }
-
-    let encoded_message = Bytes2048::from(limbs_to_bytes_be_2048(&witness.steps[16].remainder_limbs.0));
-    aggregated_error.iter().all(|&value| value == 0)
-        && verify_pkcs1v15_sha256_encoded(encoded_message.as_array(), message_hash)
-}
-
 #[derive(Clone, Copy)]
-struct Residues2048([u32; 4]);
+pub(crate) struct Residues2048(pub(crate) [u32; 4]);
 
 impl Residues2048 {
-    fn from_bytes(bytes: &Bytes2048) -> Self {
+    pub(crate) fn from_bytes(bytes: &Bytes2048) -> Self {
         Self::from_limbs(&bytes_be_to_limbs_2048(bytes.as_array()))
     }
 
-    fn from_limbs(limbs: &[Limb; LIMBS_2048]) -> Self {
-        let mut residues = [0u32; 4];
-        let mut i = 0usize;
-        while i < RSA_CHECK_PRIMES.len() {
-            let (prime, complement) = RSA_CHECK_PRIMES[i];
-            residues[i] = limbs_mod_prime(limbs, prime, complement);
-            i += 1;
-        }
-        Self(residues)
+    pub(crate) fn from_limbs(limbs: &[Limb; LIMBS_2048]) -> Self {
+        Self(residues_from_limbs(limbs))
     }
 }
 
-fn accumulate_residue_error(
+#[inline(always)]
+fn residues_from_limbs(limbs: &[Limb; LIMBS_2048]) -> [u32; 4] {
+    let (prime0, complement0) = RSA_CHECK_PRIMES[0];
+    let (prime1, complement1) = RSA_CHECK_PRIMES[1];
+    let (prime2, complement2) = RSA_CHECK_PRIMES[2];
+    let (prime3, complement3) = RSA_CHECK_PRIMES[3];
+
+    let mut acc0 = 0u32;
+    let mut acc1 = 0u32;
+    let mut acc2 = 0u32;
+    let mut acc3 = 0u32;
+
+    #[cfg(feature = "rv64")]
+    {
+        let mut idx = LIMBS_2048;
+        while idx > 0 {
+            idx -= 1;
+            let limb = limbs[idx];
+            let hi = (limb >> 32) as u32;
+            let lo = limb as u32;
+
+            acc0 = fold_residue_digit(acc0, hi, prime0, complement0);
+            acc1 = fold_residue_digit(acc1, hi, prime1, complement1);
+            acc2 = fold_residue_digit(acc2, hi, prime2, complement2);
+            acc3 = fold_residue_digit(acc3, hi, prime3, complement3);
+
+            acc0 = fold_residue_digit(acc0, lo, prime0, complement0);
+            acc1 = fold_residue_digit(acc1, lo, prime1, complement1);
+            acc2 = fold_residue_digit(acc2, lo, prime2, complement2);
+            acc3 = fold_residue_digit(acc3, lo, prime3, complement3);
+        }
+    }
+
+    #[cfg(not(feature = "rv64"))]
+    {
+        let mut idx = LIMBS_2048;
+        while idx > 0 {
+            idx -= 1;
+            let limb = limbs[idx];
+            acc0 = fold_residue_digit(acc0, limb, prime0, complement0);
+            acc1 = fold_residue_digit(acc1, limb, prime1, complement1);
+            acc2 = fold_residue_digit(acc2, limb, prime2, complement2);
+            acc3 = fold_residue_digit(acc3, limb, prime3, complement3);
+        }
+    }
+
+    [acc0, acc1, acc2, acc3]
+}
+
+pub(crate) fn accumulate_residue_error(
     aggregated_error: &mut [u32; 4],
     weights: &[u32; 4],
     lhs: &Residues2048,
@@ -425,7 +410,12 @@ fn limbs_mod_prime(limbs: &[Limb; LIMBS_2048], prime: u32, complement: u32) -> u
     }
 }
 
-fn limbs_lt(lhs: &[Limb; LIMBS_2048], rhs: &[Limb; LIMBS_2048]) -> bool {
+#[inline(always)]
+fn fold_residue_digit(acc: u32, digit: u32, prime: u32, complement: u32) -> u32 {
+    reduce_near_u32_prime((acc as u64) * (complement as u64) + (digit as u64), prime, complement)
+}
+
+pub(crate) fn limbs_lt(lhs: &[Limb; LIMBS_2048], rhs: &[Limb; LIMBS_2048]) -> bool {
     let mut idx = LIMBS_2048;
     while idx > 0 {
         idx -= 1;
@@ -486,7 +476,7 @@ fn reduce_near_u32_prime(value: u64, prime: u32, complement: u32) -> u32 {
     folded as u32
 }
 
-fn seeded_weight_state_init(seed: &[u8; 32]) -> [u32; 4] {
+pub(crate) fn seeded_weight_state_init(seed: &[u8; 32]) -> [u32; 4] {
     let mut state = [0u32; 4];
     let mut i = 0usize;
     while i < RSA_CHECK_PRIMES.len() {
@@ -498,7 +488,7 @@ fn seeded_weight_state_init(seed: &[u8; 32]) -> [u32; 4] {
     state
 }
 
-fn sampled_step_checks(seed: &[u8; 32]) -> [bool; 17] {
+pub(crate) fn sampled_step_checks(seed: &[u8; 32]) -> [bool; 17] {
     let mut checks = [false; 17];
     checks[16] = true;
     let mut i = 0usize;
@@ -511,7 +501,7 @@ fn sampled_step_checks(seed: &[u8; 32]) -> [bool; 17] {
     checks
 }
 
-fn seeded_weights(state: &[u32; 4]) -> [u32; 4] {
+pub(crate) fn seeded_weights(state: &[u32; 4]) -> [u32; 4] {
     let mut weights = [0u32; 4];
     let mut i = 0usize;
     while i < weights.len() {
@@ -521,7 +511,7 @@ fn seeded_weights(state: &[u32; 4]) -> [u32; 4] {
     weights
 }
 
-fn advance_seeded_weight_state(state: &mut [u32; 4], step_idx: usize) {
+pub(crate) fn advance_seeded_weight_state(state: &mut [u32; 4], step_idx: usize) {
     let mut i = 0usize;
     while i < state.len() {
         state[i] = state[i]
@@ -560,7 +550,7 @@ fn biguint_to_limbs_2048(value: &num_bigint::BigUint) -> [Limb; LIMBS_2048] {
 #[cfg(all(test, feature = "host"))]
 mod tests {
     use super::*;
-    use crate::verify::{bytes_be_to_limbs_2048, parse_pkcs1_modulus};
+    use crate::verify::{bytes_be_to_limbs_2048, parse_pkcs1_modulus, verify_pkcs1v15_sha256_with_witness};
     use rand::{Rng, SeedableRng};
 
     #[test]
@@ -590,6 +580,25 @@ mod tests {
     }
 
     #[test]
+    fn test_residues_from_limbs_matches_per_prime_scan() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(99);
+        for _ in 0..1024 {
+            let mut limbs = [0 as Limb; LIMBS_2048];
+            for limb in &mut limbs {
+                *limb = rng.gen::<Limb>();
+            }
+            let residues = residues_from_limbs(&limbs);
+            let expected = [
+                limbs_mod_prime(&limbs, RSA_CHECK_PRIMES[0].0, RSA_CHECK_PRIMES[0].1),
+                limbs_mod_prime(&limbs, RSA_CHECK_PRIMES[1].0, RSA_CHECK_PRIMES[1].1),
+                limbs_mod_prime(&limbs, RSA_CHECK_PRIMES[2].0, RSA_CHECK_PRIMES[2].1),
+                limbs_mod_prime(&limbs, RSA_CHECK_PRIMES[3].0, RSA_CHECK_PRIMES[3].1),
+            ];
+            assert_eq!(residues, expected);
+        }
+    }
+
+    #[test]
     fn test_build_and_verify_trusted_advice_witness() {
         use rsa::pkcs1::EncodeRsaPublicKey;
         use rsa::signature::{SignatureEncoding, Signer};
@@ -603,11 +612,11 @@ mod tests {
         let message = b"from:test@example.com\r\nto:bob@example.com\r\n";
         let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
         let signature = Bytes2048(signing_key.sign(message).to_vec().try_into().unwrap());
-        let witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
-        let challenge_seed = trusted_advice_witness_seed_from_commitment_bytes(b"witness-commitment");
+        let witness = build_witness_2048(&modulus, &signature);
+        let challenge_seed = witness_seed_from_commitment_bytes(b"witness-commitment");
         let hash: [u8; 32] = sha2::Sha256::digest(message).into();
-        assert!(validate_rsa65537_trusted_advice_witness(&modulus, &signature, &witness));
-        assert!(verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+        assert!(validate_witness_2048(&modulus, &signature, &witness));
+        assert!(verify_pkcs1v15_sha256_with_witness(
             &witness,
             &modulus,
             &signature,
@@ -630,12 +639,12 @@ mod tests {
         let message = b"subject:test\r\n";
         let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
         let signature = Bytes2048(signing_key.sign(message).to_vec().try_into().unwrap());
-        let mut witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
+        let mut witness = build_witness_2048(&modulus, &signature);
         witness.steps[3].quotient_residues[0] ^= 1;
         let hash: [u8; 32] = sha2::Sha256::digest(message).into();
-        let challenge_seed = trusted_advice_witness_seed_from_commitment_bytes(b"witness-commitment");
-        assert!(!validate_rsa65537_trusted_advice_witness(&modulus, &signature, &witness));
-        assert!(!verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+        let challenge_seed = witness_seed_from_commitment_bytes(b"witness-commitment");
+        assert!(!validate_witness_2048(&modulus, &signature, &witness));
+        assert!(!verify_pkcs1v15_sha256_with_witness(
             &witness,
             &modulus,
             &signature,
@@ -647,12 +656,12 @@ mod tests {
     #[test]
     fn test_rejects_wrong_signature_binding() {
         let modulus = bytes_be_to_limbs_2048(&[0x11u8; 256]);
-        let witness = Rsa65537TrustedAdviceWitness2048 {
+        let witness = Witness2048 {
             modulus: Bytes2048([0x11u8; 256]),
             signature: Bytes2048([0x22u8; 256]),
-            steps: [RsaReductionStep2048::default(); 17],
+            steps: [Step2048::default(); 17],
         };
-        assert!(!verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+        assert!(!verify_pkcs1v15_sha256_with_witness(
             &witness,
             &modulus,
             &Bytes2048([0x33u8; 256]),
@@ -675,13 +684,13 @@ mod tests {
         let message = b"sampled-residue-check";
         let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
         let signature = Bytes2048(signing_key.sign(message).to_vec().try_into().unwrap());
-        let mut witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
-        let challenge_seed = trusted_advice_witness_seed_from_commitment_bytes(b"witness-commitment");
+        let mut witness = build_witness_2048(&modulus, &signature);
+        let challenge_seed = witness_seed_from_commitment_bytes(b"witness-commitment");
         let sampled_checks = sampled_step_checks(&challenge_seed);
         let tampered_idx = sampled_checks[..16].iter().position(|&check| check).unwrap_or(0);
         witness.steps[tampered_idx].remainder_residues[0] ^= 1;
         let hash: [u8; 32] = sha2::Sha256::digest(message).into();
-        assert!(!verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+        assert!(!verify_pkcs1v15_sha256_with_witness(
             &witness,
             &modulus,
             &signature,

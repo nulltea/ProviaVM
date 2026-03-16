@@ -15,10 +15,10 @@ use eyre::Context;
 use provia_jolt_sdk::TrustedAdvice;
 use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
 use jolt_inlines_rsa::{
-    build_rsa65537_trusted_advice_witness, modpow_65537_trace_len, mont_mul_2048_trace_len,
-    mont_square_2048_trace_len, trusted_advice_witness_seed_from_commitment,
-    trusted_advice_witness_seed_from_commitment_bytes, validate_rsa65537_trusted_advice_witness,
-    Bytes2048, Rsa65537TrustedAdviceWitness2048,
+    build_witness_2048, modpow_65537_trace_len, mont_mul_2048_trace_len,
+    mont_square_2048_trace_len, witness_seed_from_commitment,
+    witness_seed_from_commitment_bytes, validate_witness_2048,
+    Bytes2048, Witness2048,
 };
 use serde::Deserialize;
 use tracing::info;
@@ -98,11 +98,11 @@ fn load_real_fixtures(dir: &PathBuf, today: u32) -> eyre::Result<PassportInput> 
 fn build_witness(
     pubkey_der: &[u8],
     signature: &[u8],
-) -> eyre::Result<Rsa65537TrustedAdviceWitness2048> {
+) -> eyre::Result<Witness2048> {
     eyre::ensure!(signature.len() == 256, "signature must be 256 bytes");
     let modulus =
         parse_pkcs1_modulus(pubkey_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
-    Ok(build_rsa65537_trusted_advice_witness(
+    Ok(build_witness_2048(
         &modulus,
         &Bytes2048(signature.try_into().context("signature length")?),
     ))
@@ -110,24 +110,24 @@ fn build_witness(
 
 fn validate_witness(
     input: &PassportInput,
-    witness: &Rsa65537TrustedAdviceWitness2048,
+    witness: &Witness2048,
 ) -> eyre::Result<()> {
     let modulus = parse_pkcs1_modulus(&input.ds_pubkey_der)
         .ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
     let signature = Bytes2048(input.signature.as_slice().try_into().context("signature length")?);
     eyre::ensure!(
-        validate_rsa65537_trusted_advice_witness(&modulus, &signature, witness),
+        validate_witness_2048(&modulus, &signature, witness),
         "invalid RSA witness relation"
     );
     Ok(())
 }
 
 fn witness_seed_for_profile(
-    witness: &Rsa65537TrustedAdviceWitness2048,
+    witness: &Witness2048,
 ) -> eyre::Result<[u8; 32]> {
     let witness_bytes = provia_jolt_sdk::postcard::to_stdvec(&TrustedAdvice::from(*witness))
         .context("serializing trusted advice witness")?;
-    Ok(trusted_advice_witness_seed_from_commitment_bytes(&witness_bytes))
+    Ok(witness_seed_from_commitment_bytes(&witness_bytes))
 }
 
 fn main() -> eyre::Result<()> {
@@ -208,7 +208,7 @@ fn main() -> eyre::Result<()> {
     let trusted_commitment =
         trusted_commitment.ok_or_else(|| eyre::eyre!("missing trusted advice commitment"))?;
     input.rsa_challenge_seed =
-        trusted_advice_witness_seed_from_commitment(&trusted_commitment)
+        witness_seed_from_commitment(&trusted_commitment)
             .context("serializing trusted advice commitment")?;
 
     let delegate = build_delegate_verify_passport(compile_verify_passport(target_dir));

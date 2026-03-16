@@ -23,6 +23,11 @@ tracing = "0.1"
 tracing-forest = { version = "0.1.6", default-features = false, features = ["ansi", "smallvec"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "registry", "std"] }
 
+[dev-dependencies]
+provia-worker = { path = "../../provia-worker", features = ["test-utils"] }
+provia-coordinator = { path = "../../provia-coordinator" }
+postcard = { version = "1.0.8", default-features = false, features = ["use-std"] }
+
 [patch.crates-io]
 ark-ff = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
 ark-ec = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }

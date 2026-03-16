@@ -54,6 +54,12 @@ const-oid = "0.9"
 # Shared types
 zkpassport-core = { path = "./core" }
 
+[dev-dependencies]
+provia-worker = { path = "../../provia-worker", features = ["test-utils"] }
+provia-coordinator = { path = "../../provia-coordinator" }
+provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
+jolt-inlines-bigint = { path = "../../jolt-inlines/bigint", features = ["host"] }
+
 [patch.crates-io]
 ark-ff = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
 ark-ec = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }

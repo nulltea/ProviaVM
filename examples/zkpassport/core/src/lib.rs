@@ -2,7 +2,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-pub use jolt_inlines_rsa::{Bytes2048, Rsa65537TrustedAdviceWitness2048, RsaReductionOp, RsaReductionStep2048};
+pub use jolt_inlines_rsa::{Bytes2048, Step2048, StepOp, Witness2048};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
