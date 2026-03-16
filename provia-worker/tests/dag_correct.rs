@@ -163,7 +163,7 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
 
             // Preprocessing: create EdaBits pool for B2A conversions (2 rounds).
             let mut preproc = {
-                use provia_worker::zkvm::preproc_budget::compute_edabit_budget;
+                use provia_worker::zkvm::preprocessing::compute_edabit_budget;
                 use mpc_core::protocols::rep3_ring::edabits;
                 let budget = compute_edabit_budget(trace.len());
                 let pool_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
