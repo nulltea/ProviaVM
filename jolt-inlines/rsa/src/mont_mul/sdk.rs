@@ -27,7 +27,7 @@ impl MontContext2048 {
         Self::from_prepared(modulus, compute_n0inv(modulus[0]))
     }
 
-    /// Create a context using host-prepared modulus metadata.
+    /// Create a context using precomputed modulus metadata.
     pub fn from_prepared(modulus: [Limb; LIMBS_2048], n0inv: Limb) -> Self {
         Self { z: [0; LIMBS_2048], modulus, n0inv, _scratch: [0; LIMBS_2048 + 1] }
     }

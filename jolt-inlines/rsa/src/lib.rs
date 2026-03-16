@@ -13,12 +13,7 @@ pub mod verify;
 pub mod witness;
 
 pub use mont_mul::sdk::{mont_mul_2048, mont_square_2048, MontContext2048};
-pub use modpow::{
-    modpow_65537,
-    modpow_65537_prepared,
-    PreparedModulus2048,
-    ValidatedPreparedModulus2048,
-};
+pub use modpow::modpow_65537;
 pub use verify::verify_pkcs1v15_sha256_with_witness;
 pub use witness::{
     Bytes2048,

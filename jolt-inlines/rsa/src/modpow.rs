@@ -3,73 +3,13 @@
 use crate::mont_mul::sdk::{compute_n0inv, mont_mul_2048, mont_square_2048, MontContext2048};
 use crate::{Limb, LIMBS_2048};
 
-/// Host-prepared Montgomery constants for a fixed RSA modulus.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PreparedModulus2048 {
-    pub modulus: [Limb; LIMBS_2048],
-    pub n0inv: Limb,
-    pub rr: [Limb; LIMBS_2048],
-}
-
-/// A prepared modulus whose Montgomery metadata has been validated once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ValidatedPreparedModulus2048 {
-    pub modulus: [Limb; LIMBS_2048],
-    pub n0inv: Limb,
-    pub rr: [Limb; LIMBS_2048],
-}
-
-impl PreparedModulus2048 {
-    pub fn from_modulus(modulus: [Limb; LIMBS_2048]) -> Self {
-        let n0inv = compute_n0inv(modulus[0]);
-        let rr = compute_rr(&modulus);
-        Self { modulus, n0inv, rr }
-    }
-
-    pub fn validate(&self) -> Option<ValidatedPreparedModulus2048> {
-        if compute_n0inv(self.modulus[0]) != self.n0inv {
-            return None;
-        }
-
-        if self.rr != compute_rr(&self.modulus) {
-            return None;
-        }
-
-        Some(ValidatedPreparedModulus2048 {
-            modulus: self.modulus,
-            n0inv: self.n0inv,
-            rr: self.rr,
-        })
-    }
-
-    pub fn checked_context(&self) -> Option<MontContext2048> {
-        self.validate().map(|validated| validated.context())
-    }
-}
-
-impl ValidatedPreparedModulus2048 {
-    pub fn context(&self) -> MontContext2048 {
-        MontContext2048::from_prepared(self.modulus, self.n0inv)
-    }
-}
-
 /// Compute base^65537 mod modulus using Montgomery multiplication.
 pub fn modpow_65537(base: &[Limb; LIMBS_2048], modulus: &[Limb; LIMBS_2048]) -> [Limb; LIMBS_2048] {
-    let prepared = PreparedModulus2048::from_modulus(*modulus);
-    let validated = prepared
-        .validate()
-        .expect("invalid RSA prepared modulus");
-    modpow_65537_prepared(base, &validated)
-}
+    let n0inv = compute_n0inv(modulus[0]);
+    let rr = compute_rr(modulus);
+    let mut ctx = MontContext2048::from_prepared(*modulus, n0inv);
 
-/// Compute base^65537 mod modulus using host-prepared Montgomery constants.
-pub fn modpow_65537_prepared(
-    base: &[Limb; LIMBS_2048],
-    prepared: &ValidatedPreparedModulus2048,
-) -> [Limb; LIMBS_2048] {
-    let mut ctx = prepared.context();
-
-    mont_mul_2048(&mut ctx, base, &prepared.rr);
+    mont_mul_2048(&mut ctx, base, &rr);
     let mont_base = ctx.z;
 
     let mut acc = mont_base;
@@ -101,7 +41,7 @@ pub(crate) fn compute_r_mod(m: &[Limb; LIMBS_2048]) -> [Limb; LIMBS_2048] {
     r_mod_m
 }
 
-fn compute_rr(m: &[Limb; LIMBS_2048]) -> [Limb; LIMBS_2048] {
+pub(crate) fn compute_rr(m: &[Limb; LIMBS_2048]) -> [Limb; LIMBS_2048] {
     let limb_bits = core::mem::size_of::<Limb>() * 8;
     let total_bits = limb_bits * LIMBS_2048;
     let mut rr = compute_r_mod(m);
@@ -184,22 +124,6 @@ mod tests {
         let expected = biguint_to_limbs(&expected_bn);
 
         assert_eq!(result, expected, "modpow_65537 result mismatch");
-    }
-
-    #[test]
-    fn test_prepared_modulus_roundtrip() {
-        use rand::{Rng, SeedableRng};
-
-        let mut rng = rand::rngs::StdRng::seed_from_u64(12345);
-        let mut modulus = [0 as Limb; LIMBS_2048];
-        for limb in modulus.iter_mut() {
-            *limb = rng.gen();
-        }
-        modulus[0] |= 1;
-        modulus[LIMBS_2048 - 1] |= 1 << (core::mem::size_of::<Limb>() * 8 - 1);
-
-        let prepared = PreparedModulus2048::from_modulus(modulus);
-        assert!(prepared.validate().is_some());
     }
 
     fn limbs_to_biguint(limbs: &[Limb; LIMBS_2048]) -> num_bigint_dig::BigUint {

@@ -7,6 +7,9 @@ use crate::witness::{
 };
 use crate::{Limb, LIMBS_2048, LIMB_BYTES};
 
+const SHA256_DIGEST_INFO: [u8; 19] =
+    [0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20];
+
 /// Verify an RSA PKCS#1 v1.5 signature with SHA-256.
 ///
 /// - `n`: RSA modulus as limbs (2048-bit, little-endian)
@@ -71,9 +74,8 @@ pub fn verify_pkcs1v15_sha256_with_witness(
         current_residues = remainder_residues;
     }
 
-    let encoded_message = Bytes2048::from(limbs_to_bytes_be_2048(&witness.steps[16].remainder_limbs.0));
     aggregated_error.iter().all(|&value| value == 0)
-        && verify_pkcs1v15_sha256_encoded(encoded_message.as_array(), message_hash)
+        && verify_pkcs1v15_sha256_encoded_limbs(&witness.steps[16].remainder_limbs.0, message_hash)
 }
 
 pub fn verify_pkcs1v15_sha256_encoded(result_bytes: &[u8; 256], message_hash: &[u8; 32]) -> bool {
@@ -81,11 +83,6 @@ pub fn verify_pkcs1v15_sha256_encoded(result_bytes: &[u8; 256], message_hash: &[
     // Expected format: 0x00 0x01 [0xFF padding] 0x00 [DigestInfo] [hash]
     // DigestInfo for SHA-256 (DER encoded):
     // 30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20
-    const SHA256_DIGEST_INFO: [u8; 19] = [
-        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04,
-        0x20,
-    ];
-
     // result_bytes[0] must be 0x00
     if result_bytes[0] != 0x00 {
         return false;
@@ -120,6 +117,58 @@ pub fn verify_pkcs1v15_sha256_encoded(result_bytes: &[u8; 256], message_hash: &[
     // Check hash
     let hash_start = di_start + 19;
     result_bytes[hash_start..hash_start + 32] == *message_hash
+}
+
+#[inline(always)]
+fn encoded_byte_at(encoded: &[Limb; LIMBS_2048], byte_idx_be: usize) -> u8 {
+    let byte_idx_le = 255 - byte_idx_be;
+    let limb_idx = byte_idx_le / LIMB_BYTES;
+    let byte_in_limb = byte_idx_le % LIMB_BYTES;
+    ((encoded[limb_idx] >> (8 * byte_in_limb)) & 0xff) as u8
+}
+
+fn verify_pkcs1v15_sha256_encoded_limbs(encoded: &[Limb; LIMBS_2048], message_hash: &[u8; 32]) -> bool {
+    if encoded_byte_at(encoded, 0) != 0x00 {
+        return false;
+    }
+    if encoded_byte_at(encoded, 1) != 0x01 {
+        return false;
+    }
+
+    let hash_with_info_len = 32 + SHA256_DIGEST_INFO.len();
+    let separator_idx = 256 - hash_with_info_len - 1;
+
+    let mut i = 2usize;
+    while i < separator_idx {
+        if encoded_byte_at(encoded, i) != 0xff {
+            return false;
+        }
+        i += 1;
+    }
+
+    if encoded_byte_at(encoded, separator_idx) != 0x00 {
+        return false;
+    }
+
+    let di_start = separator_idx + 1;
+    let mut j = 0usize;
+    while j < SHA256_DIGEST_INFO.len() {
+        if encoded_byte_at(encoded, di_start + j) != SHA256_DIGEST_INFO[j] {
+            return false;
+        }
+        j += 1;
+    }
+
+    let hash_start = di_start + SHA256_DIGEST_INFO.len();
+    let mut k = 0usize;
+    while k < 32 {
+        if encoded_byte_at(encoded, hash_start + k) != message_hash[k] {
+            return false;
+        }
+        k += 1;
+    }
+
+    true
 }
 
 /// Convert big-endian bytes to little-endian limbs.
@@ -247,7 +296,20 @@ fn parse_der_length(data: &[u8]) -> Option<(usize, usize)> {
 #[cfg(all(test, feature = "host"))]
 mod tests {
     use super::*;
-    use crate::PreparedModulus2048;
+    use rand::Rng;
+
+    fn valid_encoded_message(message_hash: &[u8; 32]) -> [u8; 256] {
+        let mut encoded = [0xffu8; 256];
+        encoded[0] = 0x00;
+        encoded[1] = 0x01;
+        let separator_idx = 256 - (32 + SHA256_DIGEST_INFO.len()) - 1;
+        encoded[separator_idx] = 0x00;
+        let di_start = separator_idx + 1;
+        encoded[di_start..di_start + SHA256_DIGEST_INFO.len()].copy_from_slice(&SHA256_DIGEST_INFO);
+        let hash_start = di_start + SHA256_DIGEST_INFO.len();
+        encoded[hash_start..hash_start + 32].copy_from_slice(message_hash);
+        encoded
+    }
 
     #[test]
     fn test_parse_pkcs1_modulus() {
@@ -331,8 +393,103 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_matches_valid_block() {
+        let message_hash = [0x42u8; 32];
+        let encoded = valid_encoded_message(&message_hash);
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_rejects_wrong_head_byte() {
+        let message_hash = [0x11u8; 32];
+        let mut encoded = valid_encoded_message(&message_hash);
+        encoded[0] ^= 1;
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(!verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(!verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_rejects_wrong_second_byte() {
+        let message_hash = [0x12u8; 32];
+        let mut encoded = valid_encoded_message(&message_hash);
+        encoded[1] ^= 1;
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(!verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(!verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_rejects_wrong_padding_byte() {
+        let message_hash = [0x13u8; 32];
+        let mut encoded = valid_encoded_message(&message_hash);
+        encoded[17] = 0x7f;
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(!verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(!verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_rejects_wrong_separator() {
+        let message_hash = [0x14u8; 32];
+        let mut encoded = valid_encoded_message(&message_hash);
+        let separator_idx = 256 - (32 + SHA256_DIGEST_INFO.len()) - 1;
+        encoded[separator_idx] = 0x01;
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(!verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(!verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_rejects_wrong_digest_info() {
+        let message_hash = [0x15u8; 32];
+        let mut encoded = valid_encoded_message(&message_hash);
+        let di_start = (256 - (32 + SHA256_DIGEST_INFO.len()) - 1) + 1;
+        encoded[di_start + 3] ^= 1;
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(!verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(!verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_rejects_wrong_hash_byte() {
+        let message_hash = [0x16u8; 32];
+        let mut encoded = valid_encoded_message(&message_hash);
+        encoded[255] ^= 1;
+        let encoded_limbs = bytes_be_to_limbs_2048(&encoded);
+
+        assert!(!verify_pkcs1v15_sha256_encoded(&encoded, &message_hash));
+        assert!(!verify_pkcs1v15_sha256_encoded_limbs(&encoded_limbs, &message_hash));
+    }
+
+    #[test]
+    fn test_verify_pkcs1v15_sha256_encoded_limbs_matches_byte_path_for_random_limbs() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..512 {
+            let mut limbs = [0 as Limb; LIMBS_2048];
+            for limb in &mut limbs {
+                *limb = rng.gen::<Limb>();
+            }
+            let message_hash: [u8; 32] = rng.gen();
+            let bytes = limbs_to_bytes_be_2048(&limbs);
+            assert_eq!(
+                verify_pkcs1v15_sha256_encoded_limbs(&limbs, &message_hash),
+                verify_pkcs1v15_sha256_encoded(&bytes, &message_hash),
+            );
+        }
+    }
+
+    #[test]
     fn test_rsa_verify_e2e() {
-        use rsa::pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey};
+        use rsa::pkcs1::EncodeRsaPublicKey;
         use rsa::pkcs1v15::SigningKey;
         use rsa::signature::Signer;
         use sha2::Sha256;
@@ -369,34 +526,5 @@ mod tests {
         bad_hash[0] ^= 0xFF;
         let bad_result = rsa_verify_pkcs1v15_sha256(&n_limbs, &sig_arr, &bad_hash);
         assert!(!bad_result, "RSA signature should NOT verify with wrong hash");
-    }
-
-    #[test]
-    fn test_prepared_rejects_bad_rr() {
-        use rsa::pkcs1::EncodeRsaPublicKey;
-        use rsa::pkcs1v15::SigningKey;
-        use rsa::signature::Signer;
-        use sha2::Sha256;
-
-        let mut rng = rand::thread_rng();
-        let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
-        let public_key = rsa::RsaPublicKey::from(&private_key);
-
-        let message = b"prepared context negative test";
-        let mut hasher = <Sha256 as sha2::Digest>::new();
-        sha2::Digest::update(&mut hasher, message);
-        let hash: [u8; 32] = sha2::Digest::finalize(hasher).into();
-
-        let signature = SigningKey::<Sha256>::new(private_key).sign(message);
-        let sig_bytes: alloc::vec::Vec<u8> = rsa::signature::SignatureEncoding::to_vec(&signature);
-        let mut sig_arr = [0u8; 256];
-        sig_arr.copy_from_slice(&sig_bytes);
-
-        let der = public_key.to_pkcs1_der().unwrap();
-        let modulus = parse_pkcs1_modulus(der.as_bytes()).unwrap();
-        let mut prepared = PreparedModulus2048::from_modulus(modulus);
-        prepared.rr[0] ^= 1;
-
-        assert!(prepared.validate().is_none());
     }
 }

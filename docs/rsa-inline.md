@@ -77,7 +77,7 @@ Each `Step2048` contains:
 - `op: StepOp`
 - `quotient_residues: [u32; 4]`
 - `remainder_residues: [u32; 4]`
-- `remainder: Bytes2048`
+- `remainder_limbs: Limbs2048`
 
 The `17` steps are:
 
@@ -136,8 +136,8 @@ Current measured results after cleanup:
 
 | Metric | rv32 | rv64 |
 |---|---:|---:|
-| worker `zkemail_trace_only` | `521,157` | `499,474` |
-| example `verify_dkim` | `591,526` | `578,941` |
+| worker `zkemail_trace_only` | `473,706` | `430,302` |
+| example `verify_dkim` | `544,013` | `509,707` |
 
 rv64 is only a modest improvement now because zkemail no longer spends most of its time inside Montgomery arithmetic. The remaining hot path is mostly:
 

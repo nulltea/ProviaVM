@@ -3,7 +3,7 @@
 use crate::{Limb, LIMBS_2048, LIMB_BYTES};
 use crate::mont_mul::exec::montgomery_mul;
 use crate::mont_mul::sdk::compute_n0inv;
-use crate::modpow::{compute_r_mod, PreparedModulus2048};
+use crate::modpow::{compute_r_mod, compute_rr};
 
 use tracer::emulator::cpu::Xlen;
 use tracer::utils::inline_test_harness::{InlineMemoryLayout, InlineTestHarness};
@@ -211,8 +211,7 @@ fn test_trace_montgomery_rr_times_one_fixture() {
     modulus[0] |= 1;
     modulus[LIMBS_2048 - 1] |= 1 << (core::mem::size_of::<Limb>() * 8 - 1);
 
-    let prepared = PreparedModulus2048::from_modulus(modulus);
-    let x = prepared.rr;
+    let x = compute_rr(&modulus);
     let mut y = [0 as Limb; LIMBS_2048];
     y[0] = 1;
     let expected = compute_r_mod(&modulus);
@@ -298,8 +297,7 @@ fn test_trace_montgomery_rr_times_one_rsa_fixture() {
     let public_key_der = public_key.to_pkcs1_der().unwrap();
     let modulus = parse_pkcs1_modulus(public_key_der.as_bytes()).unwrap();
 
-    let prepared = PreparedModulus2048::from_modulus(modulus);
-    let x = prepared.rr;
+    let x = compute_rr(&modulus);
     let mut y = [0 as Limb; LIMBS_2048];
     y[0] = 1;
     let expected = compute_r_mod(&modulus);
@@ -386,8 +384,7 @@ fn test_trace_montgomery_rr_times_one_worker_fixture() {
     let public_key_der = public_key.to_pkcs1_der().unwrap();
     let modulus = parse_pkcs1_modulus(public_key_der.as_bytes()).unwrap();
 
-    let prepared = PreparedModulus2048::from_modulus(modulus);
-    let x = prepared.rr;
+    let x = compute_rr(&modulus);
     let mut y = [0 as Limb; LIMBS_2048];
     y[0] = 1;
     let expected = compute_r_mod(&modulus);
