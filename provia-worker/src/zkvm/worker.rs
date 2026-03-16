@@ -73,6 +73,12 @@ impl Rep3JoltDagWorker {
             &mut io_ctx,
             preproc,
         )?;
+        Self::commit_trusted_advice::<F, PCS, ProofTranscript, N>(
+            &mut state,
+            padded_trace_length,
+            &mut io_ctx,
+            preproc,
+        )?;
 
         // In-process tests share DoryGlobals across all 3 worker threads.
         // Barrier ensures all workers finish the advice commit (which uses
@@ -92,9 +98,6 @@ impl Rep3JoltDagWorker {
                 &mut io_ctx,
                 preproc,
             )?;
-
-        // --- Compute trusted advice polynomial (after witness commit, matching vanilla) ---
-        Self::compute_trusted_advice_poly::<F, PCS, N>(&mut state, &mut io_ctx)?;
 
         // Stage 1 (Spartan outer sumcheck)
         let (outer_sumcheck_r, claimed_witness_evals) =
@@ -142,8 +145,11 @@ impl Rep3JoltDagWorker {
         maybe_purge_jemalloc();
 
         // -------------------------------------------------------------------
-        // Untrusted advice opening proof (if advice is non-empty)
+        // Trusted/untrusted advice opening proofs (if advice commitments are present)
         // -------------------------------------------------------------------
+        if state.prover_state.trusted_advice_polynomial.is_some() {
+            Self::prove_trusted_advice_opening::<F, PCS, ProofTranscript, N>(&mut state, &mut io_ctx)?;
+        }
         if state.prover_state.untrusted_advice_polynomial.is_some() {
             Self::prove_untrusted_advice_opening::<F, PCS, ProofTranscript, N>(&mut state, &mut io_ctx)?;
         }
@@ -227,8 +233,9 @@ impl Rep3JoltDagWorker {
         // Send commitment shares to coordinator
         io_ctx.network().send_response(commitment_shares)?;
 
-        // Send untrusted advice commitment share to coordinator.
+        // Send advice commitment shares to coordinator.
         io_ctx.network().send_response(state.untrusted_advice_commitment.clone())?;
+        io_ctx.network().send_response(state.trusted_advice_commitment.clone())?;
 
         // Build hint map from raw MaybeShared hint shares (used by reduce_and_prove).
         let hint_map: HashMap<CommittedPolynomial, MaybeShared<PCS::OpeningProofHint>> = poly_keys
@@ -379,6 +386,50 @@ impl Rep3JoltDagWorker {
         Ok(())
     }
 
+    fn commit_trusted_advice<F, PCS, ProofTranscript, N>(
+        state: &mut StateManagerWorker<'_, F, PCS>,
+        padded_trace_length: usize,
+        io_ctx: &mut IoContextPool<N>,
+        preproc: &mut PreprocessingPool<F>,
+    ) -> eyre::Result<()>
+    where
+        F: JoltField,
+        PCS: CommitmentScheme<Field = F> + Rep3CommitmentScheme<F, ProofTranscript>,
+        ProofTranscript: Transcript,
+        N: Rep3NetworkWorker,
+    {
+        if state.program_io.trusted_advice.is_empty() {
+            return Ok(());
+        }
+
+        let ws = jolt_core::common::constants::RAM_WORD_SIZE as usize;
+        let max_size = state.program_io.memory_layout.max_trusted_advice_size as usize / ws;
+        eyre::ensure!(
+            max_size <= padded_trace_length,
+            "max_trusted_advice_size/{ws} ({max_size}) exceeds padded_trace_length ({padded_trace_length}); \
+             current PCS generators/DoryGlobals are built for padded_trace_length"
+        );
+
+        DoryGlobals::initialize_context(1, max_size, DoryContext::TrustedAdvice, None);
+        DoryGlobals::set_context(DoryContext::TrustedAdvice);
+
+        let poly = Self::shared_advice_polynomial::<F, PCS, N>(&state.program_io.trusted_advice, max_size, io_ctx)?;
+        let (commitment, hint) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::commit_rep3(
+            &poly,
+            &state.prover_state.preprocessing.generators,
+            false,
+            io_ctx,
+            preproc,
+        )?;
+
+        state.trusted_advice_commitment = Some(commitment);
+        state.prover_state.trusted_advice_polynomial = Some(poly);
+        state.prover_state.trusted_advice_hint = Some(hint);
+
+        DoryGlobals::set_context(DoryContext::Main);
+        Ok(())
+    }
+
     /// Produce the untrusted advice opening proof.
     ///
     /// The coordinator sends the opening point (derived from the stage2 accumulator).
@@ -434,23 +485,46 @@ impl Rep3JoltDagWorker {
         Ok(())
     }
 
-    /// Compute the trusted advice polynomial (if non-empty) from Rep3 shares.
-    fn compute_trusted_advice_poly<F, PCS, N>(
+    fn prove_trusted_advice_opening<F, PCS, ProofTranscript, N>(
         state: &mut StateManagerWorker<'_, F, PCS>,
         io_ctx: &mut IoContextPool<N>,
     ) -> eyre::Result<()>
     where
         F: JoltField,
-        PCS: CommitmentScheme<Field = F>,
+        PCS: CommitmentScheme<Field = F> + Rep3CommitmentScheme<F, ProofTranscript>,
+        ProofTranscript: Transcript,
         N: Rep3NetworkWorker,
     {
-        if state.program_io.trusted_advice.is_empty() {
-            return Ok(());
-        }
+        let opening_point: Vec<F::Challenge> = io_ctx.network().receive_request()?;
 
-        let max_size = state.program_io.memory_layout.max_trusted_advice_size as usize / 8;
-        let poly = Self::shared_advice_polynomial::<F, PCS, N>(&state.program_io.trusted_advice, max_size, io_ctx)?;
-        state.prover_state.trusted_advice_polynomial = Some(poly);
+        let poly = state.prover_state.trusted_advice_polynomial.as_ref().unwrap();
+        let point_f: Vec<F> = opening_point.iter().map(|c| (*c).into()).collect();
+        let eval = poly.evaluate(&point_f);
+        let eval_f: F = match eval {
+            crate::utils::types::Rep3Value::Additive(additive) => additive.into_fe(),
+            crate::utils::types::Rep3Value::Public(v) => v,
+            crate::utils::types::Rep3Value::Shared(_) => {
+                unreachable!("trusted advice polynomial should produce Additive eval")
+            }
+        };
+        io_ctx.network().send_response(eval_f)?;
+
+        DoryGlobals::set_context(DoryContext::TrustedAdvice);
+        let hint = state.prover_state.trusted_advice_hint.take().map(|h| match h {
+            MaybeShared::Shared(v) => v,
+            MaybeShared::Public(Some(v)) => v,
+            MaybeShared::Public(None) => unreachable!("trusted advice hint should not be None"),
+        });
+        let result = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::prove_rep3(
+            poly,
+            &state.prover_state.preprocessing.generators,
+            &opening_point,
+            hint,
+            io_ctx.network(),
+        );
+        DoryGlobals::set_context(DoryContext::Main);
+        result?;
+
         Ok(())
     }
 }

@@ -1863,14 +1863,17 @@ dependencies = [
 name = "jolt-inlines-rsa"
 version = "0.1.0"
 dependencies = [
+ "ark-serialize",
  "ctor 0.2.9",
  "jolt-tracer",
+ "num-bigint",
  "num-bigint-dig",
  "num-integer",
  "num-traits",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rsa",
+ "serde",
  "sha2",
  "tracing",
 ]

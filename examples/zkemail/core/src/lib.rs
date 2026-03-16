@@ -16,6 +16,8 @@ pub struct DKIMInput {
     pub public_key_der: Vec<u8>,
     /// Sender domain as bytes (e.g., b"google.com")
     pub from_domain: Vec<u8>,
+    /// Transcript-bound seed for RSA witness compression checks.
+    pub rsa_challenge_seed: [u8; 32],
 }
 
 /// Operation performed at one step of the RSA-65537 addition chain.

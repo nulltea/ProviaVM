@@ -2,9 +2,10 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use ::guest::{
-    analyze_verify_dkim, build_delegate_verify_dkim, build_verifier_verify_dkim, compile_verify_dkim,
-    memory_config_verify_dkim, verify_dkim,
+    analyze_verify_dkim, build_delegate_verify_dkim, commit_trusted_advice_verify_dkim, compile_verify_dkim,
+    memory_config_verify_dkim, preprocess_prover_verify_dkim, verify_dkim,
 };
+use ark_serialize::CanonicalSerialize;
 use ark_bn254::Fr;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -31,6 +32,7 @@ use jolt_inlines_rsa::{
     modpow_65537_trace_len,
 };
 use jolt_inlines_rsa::verify::{limbs_to_bytes_be_2048, parse_pkcs1_modulus};
+use jolt_inlines_sha2::Sha256;
 
 type F = Fr;
 type PCS = provia_jolt_sdk::PCS;
@@ -202,6 +204,16 @@ fn build_rsa_witness(public_key_der: &[u8], signature: &[u8]) -> eyre::Result<Rs
     Ok(witness)
 }
 
+fn rsa_challenge_seed_from_commitment(commitment: &<PCS as CommitmentScheme>::Commitment) -> eyre::Result<[u8; 32]> {
+    let mut commitment_bytes = Vec::new();
+    commitment
+        .serialize_compressed(&mut commitment_bytes)
+        .context("serializing trusted advice commitment")?;
+    let mut seed_input = b"zkemail-rsa-challenge-v1".to_vec();
+    seed_input.extend_from_slice(&commitment_bytes);
+    Ok(Sha256::digest(&seed_input))
+}
+
 fn validate_rsa_witness(input: &DKIMInput, witness: &Rsa65537Witness2048) -> eyre::Result<()> {
     let modulus = parse_pkcs1_modulus(&input.public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
     let modulus_be = limbs_to_bytes_be_2048(&modulus);
@@ -319,6 +331,7 @@ async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Re
         signature,
         public_key_der,
         from_domain: from_domain.as_bytes().to_vec(),
+        rsa_challenge_seed: [0u8; 32],
     };
     let witness = build_rsa_witness(&input.public_key_der, &input.signature)?;
     validate_rsa_witness(&input, &witness)?;
@@ -334,8 +347,16 @@ fn main() -> eyre::Result<()> {
 
     let args = Args::parse();
 
+    let target_dir = "/tmp/jolt-guest-targets";
+    let mut preprocessing_program = compile_verify_dkim(target_dir);
+    let prover_preprocessing = preprocess_prover_verify_dkim(&mut preprocessing_program);
+
     let rt = tokio::runtime::Runtime::new()?;
-    let (dkim_input, rsa_witness) = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
+    let (mut dkim_input, rsa_witness) = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
+    let (trusted_commitment, _trusted_hint) =
+        commit_trusted_advice_verify_dkim(TrustedAdvice::from(rsa_witness.clone()), &prover_preprocessing);
+    let trusted_commitment = trusted_commitment.ok_or_else(|| eyre::eyre!("missing trusted advice commitment"))?;
+    dkim_input.rsa_challenge_seed = rsa_challenge_seed_from_commitment(&trusted_commitment)?;
 
     if args.profile_rsa {
         print_profile_summary(dkim_input, rsa_witness);
@@ -357,8 +378,6 @@ fn main() -> eyre::Result<()> {
         addrs.try_into().map_err(|v: Vec<_>| eyre::eyre!("expected 3 worker addresses, got {}", v.len()))?;
 
     // Compile guest program (before connecting so failures don't drop worker connections)
-    let target_dir = "/tmp/jolt-guest-targets";
-    let mut preprocessing_program = compile_verify_dkim(target_dir);
     let delegate = build_delegate_verify_dkim(compile_verify_dkim(target_dir));
 
     // Native execution
@@ -373,20 +392,33 @@ fn main() -> eyre::Result<()> {
     // Delegate proof to workers
     info!("delegating proof...");
     let program_id = "zkemail-verify";
+    let rsa_challenge_seed = dkim_input.rsa_challenge_seed;
     let (output, proof, program_io) =
         delegate(&mut client, TrustedAdvice::from(rsa_witness), dkim_input, program_id)?;
     info!(trace_length = proof.trace_length, "proof received");
 
     // Verify the proof
+    let proof_commitment = proof
+        .trusted_advice_commitment
+        .as_ref()
+        .ok_or_else(|| eyre::eyre!("proof missing trusted advice commitment"))?;
+    let proof_seed = rsa_challenge_seed_from_commitment(proof_commitment)?;
+    if proof_seed != rsa_challenge_seed {
+        return Err(eyre::eyre!("RSA challenge seed mismatch for trusted advice commitment"));
+    }
+
     let (bytecode, memory_init, program_size) = preprocessing_program.decode();
     let mut memory_config = memory_config_verify_dkim();
     memory_config.program_size = Some(program_size);
     let memory_layout = MemoryLayout::new(&memory_config);
-    let prover_preprocessing: JoltProverPreprocessing<F, PCS> =
-        JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, proof.trace_length);
-    let verifier = build_verifier_verify_dkim(JoltVerifierPreprocessing::from(&prover_preprocessing));
+    let verifier_preprocessing = JoltVerifierPreprocessing::from(&JoltRVArch::prover_preprocess(
+        bytecode,
+        memory_layout,
+        memory_init,
+        proof.trace_length,
+    ));
     info!("verifying proof...");
-    let is_valid = verifier(output.clone(), program_io.panic, proof);
+    let is_valid = JoltRVArch::verify(&verifier_preprocessing, proof, program_io, None, None).is_ok();
 
     if !is_valid {
         return Err(eyre::eyre!("proof verification failed"));

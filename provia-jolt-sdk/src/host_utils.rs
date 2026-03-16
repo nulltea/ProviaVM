@@ -7,6 +7,7 @@ pub use provia_worker::host::program::generate_trace_shares;
 
 pub use jolt_core::ark_bn254::Fr as F;
 pub use jolt_core::common::jolt_device::{JoltDevice, MemoryConfig, MemoryLayout};
+pub use jolt_core::common::constants::RAM_WORD_SIZE;
 pub use jolt_core::curve::Bn254Curve;
 pub use jolt_core::field::JoltField;
 pub use jolt_core::guest;

@@ -9,15 +9,11 @@ use jolt_inlines_rsa::verify::{
 use jolt_inlines_sha2::Sha256;
 use zkemail_core::{DKIMInput, DKIMOutput, Rsa65537Witness2048, RsaStepOp};
 
-const RSA_CHECK_BASES: [u32; 8] = [
-    0x9e37_79b1,
-    0x7f4a_7c15,
-    0x94d0_49bb,
-    0x2545_f491,
-    0x27d4_eb2d,
-    0x1656_67b1,
-    0x85eb_ca77,
-    0xc2b2_ae3d,
+const RSA_CHECK_PRIMES: [(u32, u32); 4] = [
+    (4_294_967_291, 5),
+    (4_294_967_279, 17),
+    (4_294_967_231, 65),
+    (4_294_967_197, 99),
 ];
 
 #[jolt::provable(
@@ -52,7 +48,7 @@ fn verify_dkim(witness: TrustedAdvice<Rsa65537Witness2048>, input: DKIMInput) ->
     end_cycle_tracking("zkemail.bind_witness");
 
     start_cycle_tracking("zkemail.rsa_verify");
-    let verified = verify_witness_rsa_65537(&witness, &header_hash);
+    let verified = verify_witness_rsa_65537(&witness, &input.rsa_challenge_seed, &header_hash);
     end_cycle_tracking("zkemail.rsa_verify");
 
     // Hash from_domain and public_key for output commitment
@@ -69,6 +65,7 @@ fn verify_dkim(witness: TrustedAdvice<Rsa65537Witness2048>, input: DKIMInput) ->
 
 fn verify_witness_rsa_65537(
     witness: &Rsa65537Witness2048,
+    challenge_seed: &[u8; 32],
     message_hash: &[u8; 32],
 ) -> bool {
     start_cycle_tracking("zkemail.rsa_chain");
@@ -79,6 +76,7 @@ fn verify_witness_rsa_65537(
 
     let modulus_be = expect_256(&witness.modulus_be, "witness modulus length");
     let signature_be = expect_256(&witness.signature_be, "witness signature length");
+    let challenge_bases = derive_challenge_bases(challenge_seed);
     let mut current = signature_be;
 
     for (step_idx, step) in witness.steps.iter().enumerate() {
@@ -95,7 +93,7 @@ fn verify_witness_rsa_65537(
             end_cycle_tracking("zkemail.rsa_chain");
             return false;
         }
-        if !check_modular_step(&current, &rhs, &quotient_be, &modulus_be, &remainder_be) {
+        if !check_modular_step(&current, &rhs, &quotient_be, &modulus_be, &remainder_be, &challenge_bases) {
             end_cycle_tracking("zkemail.rsa_chain");
             return false;
         }
@@ -116,15 +114,22 @@ fn check_modular_step(
     quotient_be: &[u8; 256],
     modulus_be: &[u8; 256],
     remainder_be: &[u8; 256],
+    challenge_bases: &[u32; 4],
 ) -> bool {
-    for &base in &RSA_CHECK_BASES {
-        let lhs = bytes_be_fingerprint(lhs_be, base);
-        let rhs = bytes_be_fingerprint(rhs_be, base);
-        let quotient = bytes_be_fingerprint(quotient_be, base);
-        let modulus = bytes_be_fingerprint(modulus_be, base);
-        let remainder = bytes_be_fingerprint(remainder_be, base);
-        let left = lhs.wrapping_mul(rhs);
-        let right = quotient.wrapping_mul(modulus).wrapping_add(remainder);
+    for (idx, &(prime, complement)) in RSA_CHECK_PRIMES.iter().enumerate() {
+        let base = challenge_bases[idx];
+        let lhs = bytes_be_fingerprint(lhs_be, base, prime, complement);
+        let rhs = bytes_be_fingerprint(rhs_be, base, prime, complement);
+        let quotient = bytes_be_fingerprint(quotient_be, base, prime, complement);
+        let modulus = bytes_be_fingerprint(modulus_be, base, prime, complement);
+        let remainder = bytes_be_fingerprint(remainder_be, base, prime, complement);
+        let left = reduce_near_u32_prime((lhs as u64) * (rhs as u64), prime, complement);
+        let right = reduce_near_u32_prime(
+            (reduce_near_u32_prime((quotient as u64) * (modulus as u64), prime, complement) as u64)
+                + (remainder as u64),
+            prime,
+            complement,
+        );
         if left != right {
             return false;
         }
@@ -132,16 +137,39 @@ fn check_modular_step(
     true
 }
 
-fn bytes_be_fingerprint(bytes: &[u8; 256], base: u32) -> u32 {
+fn bytes_be_fingerprint(bytes: &[u8; 256], base: u32, prime: u32, complement: u32) -> u32 {
     let mut acc = 0u32;
     let mut chunk_idx = 0usize;
     while chunk_idx < 64 {
         let i = chunk_idx * 4;
         let limb = u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
-        acc = acc.wrapping_mul(base).wrapping_add(limb);
+        acc = reduce_near_u32_prime((acc as u64) * (base as u64) + (limb as u64), prime, complement);
         chunk_idx += 1;
     }
     acc
+}
+
+fn reduce_near_u32_prime(mut value: u64, prime: u32, complement: u32) -> u32 {
+    value = (value & 0xffff_ffff) + ((value >> 32) * complement as u64);
+    value = (value & 0xffff_ffff) + ((value >> 32) * complement as u64);
+    let prime_u64 = prime as u64;
+    while value >= prime_u64 {
+        value -= prime_u64;
+    }
+    value as u32
+}
+
+fn derive_challenge_bases(seed: &[u8; 32]) -> [u32; 4] {
+    let mut bases = [0u32; 4];
+    let mut i = 0usize;
+    while i < RSA_CHECK_PRIMES.len() {
+        let start = i * 4;
+        let raw = u32::from_le_bytes([seed[start], seed[start + 1], seed[start + 2], seed[start + 3]]);
+        let prime = RSA_CHECK_PRIMES[i].0;
+        bases[i] = 2 + (raw % (prime - 3));
+        i += 1;
+    }
+    bases
 }
 
 fn bytes_lt(lhs: &[u8; 256], rhs: &[u8; 256]) -> bool {

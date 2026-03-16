@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use ark_bn254::Fr;
 use rand::SeedableRng;
 use rand_chacha::ChaCha12Rng;
+use sha2::Digest;
 
 use provia_worker::host::program::generate_trace_shares;
 use provia_worker::utils::test_utils::run_rep3_local_test_with_coordinator;
@@ -24,6 +25,7 @@ use jolt_core::curve::Bn254Curve;
 use jolt_core::field::JoltField;
 use jolt_core::host::Program;
 use jolt_core::poly::commitment::dory::{DoryCommitmentScheme, DoryGlobals};
+use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::transcripts::Blake2bTranscript;
 use jolt_core::zkvm::verifier::JoltDAG;
 use jolt_core::zkvm::proof_serialization::JoltProof;
@@ -32,6 +34,7 @@ use jolt_core::zkvm::state_manager::{ProofData, ProofKeys};
 use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
 use jolt_core::zkvm::{JoltProverPreprocessing, JoltRV64IMAC, JoltVerifierPreprocessing};
 use num_bigint::BigUint;
+use ark_serialize::CanonicalSerialize;
 use tracer::JoltDevice;
 use zkemail_core::{DKIMInput, Rsa65537Witness2048, RsaModStepWitness2048, RsaStepOp};
 
@@ -99,6 +102,13 @@ fn left_pad_be_256(bytes: &[u8]) -> [u8; 256] {
     out
 }
 
+fn challenge_seed_from_witness(witness: &Rsa65537Witness2048) -> [u8; 32] {
+    let mut witness_bytes = postcard::to_stdvec(witness).unwrap();
+    let mut seed_input = b"zkemail-rsa-challenge-test-v1".to_vec();
+    seed_input.append(&mut witness_bytes);
+    sha2::Sha256::digest(&seed_input).into()
+}
+
 /// Build a synthetic DKIMInput with a valid RSA-2048 PKCS#1v15-SHA256 signature.
 fn build_zkemail_fixture() -> (DKIMInput, Rsa65537Witness2048) {
     use jolt_inlines_rsa::verify::{
@@ -119,11 +129,12 @@ fn build_zkemail_fixture() -> (DKIMInput, Rsa65537Witness2048) {
     let signature = signature_obj.to_vec();
     let public_key_der = public_key.to_pkcs1_der().unwrap().to_vec();
 
-    let input = DKIMInput {
+    let mut input = DKIMInput {
         signed_headers,
         signature,
         public_key_der,
         from_domain: b"example.com".to_vec(),
+        rsa_challenge_seed: [0u8; 32],
     };
 
     let modulus = parse_pkcs1_modulus(&input.public_key_der).unwrap();
@@ -165,6 +176,7 @@ fn build_zkemail_fixture() -> (DKIMInput, Rsa65537Witness2048) {
     }
     let final_be = left_pad_be_256(&current.to_bytes_be());
     assert!(verify_pkcs1v15_sha256_encoded(&final_be, &header_hash));
+    input.rsa_challenge_seed = challenge_seed_from_witness(&witness);
 
     (input, witness)
 }
