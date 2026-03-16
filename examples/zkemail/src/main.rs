@@ -23,16 +23,21 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
 use trust_dns_resolver::TokioAsyncResolver;
-use zkemail_core::{DKIMInput, DKIMOutput, Rsa65537Witness2048, RsaModStepWitness2048, RsaStepOp};
+use zkemail_core::{DKIMInput, DKIMOutput, Rsa65537Witness2048};
 
 use provia_jolt_sdk::*;
 use jolt_inlines_rsa::{
+    build_rsa65537_witness,
+    challenge_seed_from_commitment_bytes,
+    challenge_seed_from_serialized_commitment,
     mont_mul_2048_trace_len,
     mont_square_2048_trace_len,
     modpow_65537_trace_len,
+    validate_rsa65537_witness,
+    Bytes2048,
 };
-use jolt_inlines_rsa::verify::{limbs_to_bytes_be_2048, parse_pkcs1_modulus};
-use jolt_inlines_sha2::Sha256;
+use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
+use tokio::time::{timeout, Duration};
 
 type F = Fr;
 type PCS = provia_jolt_sdk::PCS;
@@ -149,96 +154,26 @@ fn remove_b_value(header_value: &str) -> String {
 
 /// Prepare DKIM input by parsing the email, looking up DNS, and extracting
 /// the canonicalized signed headers + RSA public key + signature.
-fn left_pad_be_256(bytes: &[u8]) -> eyre::Result<[u8; 256]> {
-    eyre::ensure!(bytes.len() <= 256, "integer exceeds 2048 bits");
-    let mut out = [0u8; 256];
-    let start = 256 - bytes.len();
-    out[start..].copy_from_slice(bytes);
-    Ok(out)
-}
-
 fn build_rsa_witness(public_key_der: &[u8], signature: &[u8]) -> eyre::Result<Rsa65537Witness2048> {
     eyre::ensure!(signature.len() == 256, "signature must be 256 bytes");
-
     let modulus = parse_pkcs1_modulus(public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
-    let modulus_be = limbs_to_bytes_be_2048(&modulus);
-    let modulus_bn = BigUint::from_bytes_be(&modulus_be);
-    let signature_be: [u8; 256] = signature.try_into().context("signature length")?;
-    let signature_bn = BigUint::from_bytes_be(&signature_be);
-
-    let mut witness = Rsa65537Witness2048 {
-        modulus_be: modulus_be.to_vec(),
-        signature_be: signature_be.to_vec(),
-        steps: vec![
-            RsaModStepWitness2048 {
-                op: RsaStepOp::Square,
-                quotient_be: vec![0u8; 256],
-                remainder_be: vec![0u8; 256],
-            };
-            17
-        ],
-    };
-
-    let mut current = signature_bn.clone();
-    for step_idx in 0..witness.steps.len() {
-        let (lhs, rhs, op) = if step_idx < 16 {
-            (&current, &current, RsaStepOp::Square)
-        } else {
-            (&current, &signature_bn, RsaStepOp::MulBase)
-        };
-        let product = lhs * rhs;
-        let quotient = &product / &modulus_bn;
-        let remainder = &product % &modulus_bn;
-        witness.steps[step_idx] = RsaModStepWitness2048 {
-            op,
-            quotient_be: left_pad_be_256(&quotient.to_bytes_be())
-                .expect("quotient fits in 2048 bits")
-                .to_vec(),
-            remainder_be: left_pad_be_256(&remainder.to_bytes_be())
-                .expect("remainder fits in 2048 bits")
-                .to_vec(),
-        };
-        current = remainder;
-    }
-
-    Ok(witness)
+    Ok(build_rsa65537_witness(
+        &modulus,
+        &Bytes2048(signature.try_into().context("signature length")?),
+    ))
 }
 
 fn rsa_challenge_seed_from_commitment(commitment: &<PCS as CommitmentScheme>::Commitment) -> eyre::Result<[u8; 32]> {
-    let mut commitment_bytes = Vec::new();
-    commitment
-        .serialize_compressed(&mut commitment_bytes)
-        .context("serializing trusted advice commitment")?;
-    let mut seed_input = b"zkemail-rsa-challenge-v1".to_vec();
-    seed_input.extend_from_slice(&commitment_bytes);
-    Ok(Sha256::digest(&seed_input))
+    challenge_seed_from_serialized_commitment(commitment).context("serializing trusted advice commitment")
 }
 
 fn validate_rsa_witness(input: &DKIMInput, witness: &Rsa65537Witness2048) -> eyre::Result<()> {
     let modulus = parse_pkcs1_modulus(&input.public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
-    let modulus_be = limbs_to_bytes_be_2048(&modulus);
-    eyre::ensure!(modulus_be.as_slice() == witness.modulus_be.as_slice(), "witness modulus mismatch");
-    let signature_be: [u8; 256] = input.signature.as_slice().try_into().context("signature length")?;
-    eyre::ensure!(signature_be.as_slice() == witness.signature_be.as_slice(), "witness signature mismatch");
-    eyre::ensure!(witness.steps.len() == 17, "expected 17 RSA witness steps");
-
-    let modulus_bn = BigUint::from_bytes_be(&witness.modulus_be);
-    let signature_bn = BigUint::from_bytes_be(&witness.signature_be);
-    let mut current = signature_bn.clone();
-    for (step_idx, step) in witness.steps.iter().enumerate() {
-        let expected_op = if step_idx < 16 { RsaStepOp::Square } else { RsaStepOp::MulBase };
-        eyre::ensure!(step.op == expected_op, "unexpected RSA witness op at step {step_idx}");
-        let rhs = if step_idx < 16 { &current } else { &signature_bn };
-        let quotient = BigUint::from_bytes_be(&step.quotient_be);
-        let remainder = BigUint::from_bytes_be(&step.remainder_be);
-        eyre::ensure!(remainder < modulus_bn, "witness remainder out of range at step {step_idx}");
-        eyre::ensure!(
-            &current * rhs == &quotient * &modulus_bn + &remainder,
-            "invalid modular witness relation at step {step_idx}",
-        );
-        current = remainder;
-    }
-
+    let signature = Bytes2048(input.signature.as_slice().try_into().context("signature length")?);
+    eyre::ensure!(
+        validate_rsa65537_witness(&modulus, &signature, witness),
+        "invalid RSA witness relation"
+    );
     Ok(())
 }
 
@@ -291,14 +226,23 @@ async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Re
             Some(s) => s,
             None => continue,
         };
-        match retrieve_public_key(&logger, cfdkim_resolver.clone(), from_domain.to_string(), selector).await {
-            Ok(pk) => {
+        match timeout(
+            Duration::from_secs(10),
+            retrieve_public_key(&logger, cfdkim_resolver.clone(), from_domain.to_string(), selector),
+        )
+        .await
+        {
+            Ok(Ok(pk)) => {
                 found_public_key_der = Some(pk.to_vec() as Vec<u8>);
                 found_header_value = Some(header_value);
                 break;
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 info!(error = %e, "retrieve_public_key failed");
+                continue;
+            }
+            Err(_) => {
+                info!("retrieve_public_key timed out");
                 continue;
             }
         }
@@ -342,26 +286,33 @@ async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Re
     ))
 }
 
+fn rsa_challenge_seed_for_profile(witness: &Rsa65537Witness2048) -> eyre::Result<[u8; 32]> {
+    let witness_bytes =
+        provia_jolt_sdk::postcard::to_stdvec(&TrustedAdvice::from(*witness)).context("serializing trusted advice witness")?;
+    Ok(challenge_seed_from_commitment_bytes(&witness_bytes))
+}
+
 fn main() -> eyre::Result<()> {
     init_tracing();
 
     let args = Args::parse();
 
+    let rt = tokio::runtime::Runtime::new()?;
+    let (mut dkim_input, rsa_witness) = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
+
+    if args.profile_rsa {
+        dkim_input.rsa_challenge_seed = rsa_challenge_seed_for_profile(&rsa_witness)?;
+        print_profile_summary(dkim_input, rsa_witness);
+        return Ok(());
+    }
+
     let target_dir = "/tmp/jolt-guest-targets";
     let mut preprocessing_program = compile_verify_dkim(target_dir);
     let prover_preprocessing = preprocess_prover_verify_dkim(&mut preprocessing_program);
-
-    let rt = tokio::runtime::Runtime::new()?;
-    let (mut dkim_input, rsa_witness) = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
     let (trusted_commitment, _trusted_hint) =
         commit_trusted_advice_verify_dkim(TrustedAdvice::from(rsa_witness.clone()), &prover_preprocessing);
     let trusted_commitment = trusted_commitment.ok_or_else(|| eyre::eyre!("missing trusted advice commitment"))?;
     dkim_input.rsa_challenge_seed = rsa_challenge_seed_from_commitment(&trusted_commitment)?;
-
-    if args.profile_rsa {
-        print_profile_summary(dkim_input, rsa_witness);
-        return Ok(());
-    }
 
     let config: DelegatorConfig =
         toml::from_str(&std::fs::read_to_string(&args.config_path).context("reading config")?)

@@ -9,3 +9,4 @@ rv64 = []
 
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+jolt-inlines-rsa = { path = "../../../jolt-inlines/rsa" }

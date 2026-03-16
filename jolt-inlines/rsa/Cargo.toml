@@ -34,3 +34,4 @@ num-integer = "0.1"
 rsa = { version = "=0.9.6" }
 sha2 = { version = "0.10", features = ["oid"] }
 rand_chacha.workspace = true
+postcard = { version = "1", features = ["alloc"] }

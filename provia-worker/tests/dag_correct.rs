@@ -33,10 +33,13 @@ use jolt_core::zkvm::state_manager::StateManager as VanillaStateManager;
 use jolt_core::zkvm::state_manager::{ProofData, ProofKeys};
 use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
 use jolt_core::zkvm::{JoltProverPreprocessing, JoltRV64IMAC, JoltVerifierPreprocessing};
-use num_bigint::BigUint;
-use ark_serialize::CanonicalSerialize;
 use tracer::JoltDevice;
-use zkemail_core::{DKIMInput, Rsa65537Witness2048, RsaModStepWitness2048, RsaStepOp};
+use zkemail_core::{DKIMInput, Rsa65537Witness2048};
+use jolt_inlines_rsa::{
+    build_rsa65537_witness,
+    challenge_seed_from_commitment_bytes,
+    Bytes2048,
+};
 
 type F = Fr;
 type PCS = DoryCommitmentScheme;
@@ -95,27 +98,14 @@ fn build_inputs() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     }
 }
 
-fn left_pad_be_256(bytes: &[u8]) -> [u8; 256] {
-    let mut out = [0u8; 256];
-    let start = 256 - bytes.len();
-    out[start..].copy_from_slice(bytes);
-    out
-}
-
 fn challenge_seed_from_witness(witness: &Rsa65537Witness2048) -> [u8; 32] {
-    let mut witness_bytes = postcard::to_stdvec(witness).unwrap();
-    let mut seed_input = b"zkemail-rsa-challenge-test-v1".to_vec();
-    seed_input.append(&mut witness_bytes);
-    sha2::Sha256::digest(&seed_input).into()
+    let witness_bytes = postcard::to_stdvec(witness).unwrap();
+    challenge_seed_from_commitment_bytes(&witness_bytes)
 }
 
 /// Build a synthetic DKIMInput with a valid RSA-2048 PKCS#1v15-SHA256 signature.
 fn build_zkemail_fixture() -> (DKIMInput, Rsa65537Witness2048) {
-    use jolt_inlines_rsa::verify::{
-        limbs_to_bytes_be_2048,
-        parse_pkcs1_modulus,
-        verify_pkcs1v15_sha256_encoded,
-    };
+    use jolt_inlines_rsa::verify::{parse_pkcs1_modulus, verify_pkcs1v15_sha256_encoded};
     use rsa::pkcs1::EncodeRsaPublicKey;
     use rsa::signature::{SignatureEncoding, Signer};
     use sha2::Digest;
@@ -138,43 +128,10 @@ fn build_zkemail_fixture() -> (DKIMInput, Rsa65537Witness2048) {
     };
 
     let modulus = parse_pkcs1_modulus(&input.public_key_der).unwrap();
-    let modulus_be = limbs_to_bytes_be_2048(&modulus);
-    let modulus_bn = BigUint::from_bytes_be(&modulus_be);
-    let signature_be: [u8; 256] = input.signature.clone().try_into().unwrap();
-    let signature_bn = BigUint::from_bytes_be(&signature_be);
-
-    let mut witness = Rsa65537Witness2048 {
-        modulus_be: modulus_be.to_vec(),
-        signature_be: signature_be.to_vec(),
-        steps: vec![
-            RsaModStepWitness2048 {
-                op: RsaStepOp::Square,
-                quotient_be: vec![0u8; 256],
-                remainder_be: vec![0u8; 256],
-            };
-            17
-        ],
-    };
-
+    let signature = Bytes2048(input.signature.clone().try_into().unwrap());
     let header_hash: [u8; 32] = sha2::Sha256::digest(&input.signed_headers).into();
-    let mut current = signature_bn.clone();
-    for step_idx in 0..witness.steps.len() {
-        let (lhs, rhs, op) = if step_idx < 16 {
-            (&current, &current, RsaStepOp::Square)
-        } else {
-            (&current, &signature_bn, RsaStepOp::MulBase)
-        };
-        let product = lhs * rhs;
-        let quotient = &product / &modulus_bn;
-        let remainder = &product % &modulus_bn;
-        witness.steps[step_idx] = RsaModStepWitness2048 {
-            op,
-            quotient_be: left_pad_be_256(&quotient.to_bytes_be()).to_vec(),
-            remainder_be: left_pad_be_256(&remainder.to_bytes_be()).to_vec(),
-        };
-        current = remainder;
-    }
-    let final_be = left_pad_be_256(&current.to_bytes_be());
+    let witness = build_rsa65537_witness(&modulus, &signature);
+    let final_be = witness.steps[16].remainder.0;
     assert!(verify_pkcs1v15_sha256_encoded(&final_be, &header_hash));
     input.rsa_challenge_seed = challenge_seed_from_witness(&witness);
 

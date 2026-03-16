@@ -10,6 +10,7 @@ extern crate alloc;
 pub mod mont_mul;
 pub mod modpow;
 pub mod verify;
+pub mod witness;
 
 pub use mont_mul::sdk::{mont_mul_2048, mont_square_2048, MontContext2048};
 pub use modpow::{
@@ -17,6 +18,20 @@ pub use modpow::{
     modpow_65537_prepared,
     PreparedModulus2048,
     ValidatedPreparedModulus2048,
+};
+pub use witness::{
+    rsa_verify_witness_pkcs1v15_sha256,
+    Bytes2048,
+    Rsa65537Witness2048,
+    RsaModStepWitness2048,
+    RsaStepOp,
+};
+#[cfg(feature = "host")]
+pub use witness::{
+    build_rsa65537_witness,
+    challenge_seed_from_commitment_bytes,
+    challenge_seed_from_serialized_commitment,
+    validate_rsa65537_witness,
 };
 
 /// Limb type: u64 on rv64, u32 on rv32.

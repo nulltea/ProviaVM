@@ -39,7 +39,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "regis
 cfdkim = { git = "https://github.com/risc0-labs/dkim" }
 mailparse = "0.14"
 trust-dns-resolver = "0.23"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 base64 = "0.21"
 jolt-inlines-sha2 = { path = "../../jolt-inlines/sha2", features = ["host"] }
 jolt-inlines-rsa = { path = "../../jolt-inlines/rsa", features = ["host"] }
