@@ -1913,6 +1913,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "jolt-inlines-bigint"
+version = "0.1.0"
+dependencies = [
+ "ctor 0.2.9",
+ "jolt-tracer",
+ "tracing",
+]
+
+[[package]]
 name = "jolt-inlines-rsa"
 version = "0.1.0"
 dependencies = [
@@ -2183,6 +2192,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "bytesize",
+ "color-eyre",
  "eyre",
  "itertools 0.12.1",
  "jolt-core",
@@ -2739,6 +2749,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rayon",
+ "rcgen",
  "rustls",
  "serde",
  "serde_json",
@@ -4977,14 +4988,21 @@ dependencies = [
  "clap",
  "eyre",
  "jolt-core",
+ "jolt-inlines-bigint",
  "jolt-inlines-rsa",
  "jolt-inlines-sha2",
  "jolt-tracer",
  "mailparse",
  "num-bigint",
+ "postcard",
+ "provia-coordinator",
  "provia-jolt-sdk",
  "provia-worker",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rsa",
  "serde",
+ "sha2",
  "slog",
  "tokio",
  "toml 0.8.23",

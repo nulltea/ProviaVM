@@ -226,6 +226,257 @@ where
 #[cfg(feature = "test-utils")]
 pub use mpc_core::protocols::rep3::test_utils::run_rep3_local_test_with_coordinator;
 
+// ── Shared DAG Test Infrastructure ──────────────────────────────────────────
+
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+use ark_bn254::Fr;
+use rand::SeedableRng;
+use rand_chacha::ChaCha12Rng;
+
+use jolt_core::curve::Bn254Curve;
+use jolt_core::host::Program;
+use jolt_core::poly::commitment::dory::{DoryCommitmentScheme, DoryGlobals};
+use jolt_core::transcripts::Blake2bTranscript;
+use jolt_core::zkvm::proof_serialization::JoltProof;
+use jolt_core::zkvm::state_manager::StateManager as VanillaStateManager;
+use jolt_core::zkvm::verifier::JoltDAG;
+use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
+use jolt_core::zkvm::{JoltProverPreprocessing, JoltVerifierPreprocessing};
+use tracer::JoltDevice;
+
+use crate::host::program::generate_trace_shares;
+use crate::zkvm::instruction::Rep3Cycle;
+use crate::zkvm::state_manager::StateManagerWorker;
+use crate::zkvm::worker::Rep3JoltDagWorker;
+use crate::zkvm::{JoltArch, Rep3JoltWorker};
+use provia_coordinator::zkvm::coordinator::Rep3JoltDag;
+use provia_coordinator::zkvm::state_manager::StateManager;
+
+pub type TestF = Fr;
+pub type TestPCS = DoryCommitmentScheme;
+pub type TestFS = Blake2bTranscript;
+
+pub struct TestFixture {
+    pub proof: JoltProof<TestF, Bn254Curve, TestPCS, TestFS>,
+    pub verifier_preprocessing: JoltVerifierPreprocessing<TestF, TestPCS>,
+    pub io_device: JoltDevice,
+    pub ram_k: usize,
+}
+
+/// Serializes the test so only one DAG proof runs at a time.
+pub fn worker_test_lock() -> MutexGuard<'static, ()> {
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+}
+
+/// Trace a program, secret-share the trace, and build preprocessing.
+pub fn build_test_fixture_from_parts(
+    program: &mut Program,
+    inputs: Vec<u8>,
+    untrusted_advice: Vec<u8>,
+    trusted_advice: Vec<u8>,
+) -> (
+    [(Vec<Rep3Cycle>, crate::host::memory::Rep3Memory, crate::host::jolt_device::Rep3ProgramIOInput); 3],
+    JoltProverPreprocessing<TestF, TestPCS>,
+    JoltVerifierPreprocessing<TestF, TestPCS>,
+    JoltDevice,
+    usize,
+    usize,
+) {
+    let mut rng = ChaCha12Rng::seed_from_u64(0);
+    let (bytecode, memory_init, io_device, raw_trace_len, shares) =
+        generate_trace_shares(program, &inputs, &untrusted_advice, &trusted_advice, &mut rng);
+
+    let padded_len = shares[0].0.len();
+    tracing::info!("Padded trace len: {padded_len}");
+
+    let preprocessing: JoltProverPreprocessing<TestF, TestPCS> =
+        <JoltArch as Rep3JoltWorker<TestF, TestPCS, TestFS>>::preprocess(
+            bytecode.clone(),
+            io_device.memory_layout.clone(),
+            memory_init.clone(),
+            raw_trace_len,
+        );
+    let verifier_preprocessing = JoltVerifierPreprocessing::from(&preprocessing);
+
+    let ram_k = crate::utils::compute_ram_k(&shares[0].0, &preprocessing.shared);
+
+    (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+}
+
+/// Run the full MPC DAG proof from pre-built shares.
+pub fn prove_test_fixture(
+    shares: [(Vec<Rep3Cycle>, crate::host::memory::Rep3Memory, crate::host::jolt_device::Rep3ProgramIOInput); 3],
+    preprocessing: JoltProverPreprocessing<TestF, TestPCS>,
+    verifier_preprocessing: JoltVerifierPreprocessing<TestF, TestPCS>,
+    mut io_device: JoltDevice,
+    ram_k: usize,
+    padded_len: usize,
+) -> TestFixture {
+    io_device.outputs.truncate(io_device.outputs.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1));
+
+    let preprocessing_arc = Arc::new(preprocessing);
+    let verifier_preprocessing_arc = Arc::new(verifier_preprocessing);
+    let io_device_arc = Arc::new(io_device);
+    let shares_arc = Arc::new(shares);
+
+    let preprocessing_arc_for_workers = Arc::clone(&preprocessing_arc);
+    let verifier_preprocessing_arc_for_coord = Arc::clone(&verifier_preprocessing_arc);
+    let io_device_arc_for_coord = Arc::clone(&io_device_arc);
+
+    let (_worker_out, rep3_proof) = run_rep3_local_test_with_coordinator(
+        1,
+        {
+            let shares_arc = Arc::clone(&shares_arc);
+            let preprocessing_arc = Arc::clone(&preprocessing_arc_for_workers);
+            move |party_idx| {
+                let (trace, memory, advice_shares) = shares_arc[party_idx].clone();
+                (trace, memory, Arc::clone(&preprocessing_arc), ram_k, advice_shares)
+            }
+        },
+        {
+            let verifier_preprocessing_arc = Arc::clone(&verifier_preprocessing_arc_for_coord);
+            let prover_preprocessing_arc = Arc::clone(&preprocessing_arc);
+            let io_device_arc = Arc::clone(&io_device_arc_for_coord);
+            move || {
+                (
+                    Arc::clone(&verifier_preprocessing_arc),
+                    Arc::clone(&prover_preprocessing_arc),
+                    Arc::clone(&io_device_arc),
+                    ram_k,
+                )
+            }
+        },
+        move |input, io_ctx| {
+            let (trace, final_memory_state, preprocessing, ram_k, advice_shares) = input;
+            let mut io_ctx = io_ctx;
+            let party_id = io_ctx.party_id();
+
+            let mut preproc = {
+                use crate::zkvm::preprocessing::compute_edabit_budget;
+                use mpc_core::protocols::rep3_ring::edabits;
+                let budget = compute_edabit_budget(trace.len());
+                let pool_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join(format!(".preprocessing/test/party_{}", io_ctx.party_idx()));
+                #[cfg(not(feature = "ring-msm"))]
+                let mut pool = edabits::preprocess_pool::<TestF, _>(
+                    &pool_dir,
+                    [budget.u8, budget.u16, budget.u32, budget.u64, budget.u128],
+                    budget.dabits,
+                    budget.rand_ohvs_u8_k4,
+                    budget.ring_edabits_u64,
+                    budget.ring_edabits_u128,
+                    &mut io_ctx,
+                )?;
+                #[cfg(feature = "ring-msm")]
+                let mut pool = edabits::preprocess_pool::<TestF, _>(
+                    &pool_dir,
+                    [budget.u8, budget.u16, budget.u32, budget.u64, budget.u128],
+                    budget.dabits,
+                    budget.rand_ohvs_u8_k4,
+                    budget.ring_edabits_dory,
+                    budget.ring_edabits_u64,
+                    budget.ring_edabits_u128,
+                    budget.ring_edabits_iring,
+                    &mut io_ctx,
+                )?;
+
+                #[cfg(feature = "ring-msm")]
+                {
+                    use mpc_core::protocols::rep3_ring::preprocessing::wrap_mask::generate_wrap_masks_lazy;
+                    if budget.wrap_masks > 0 {
+                        pool.set_wrap_masks(generate_wrap_masks_lazy(budget.wrap_masks, io_ctx.main())?);
+                    }
+                    if budget.wrap_masks_iring > 0 {
+                        pool.set_wrap_masks_iring(generate_wrap_masks_lazy(budget.wrap_masks_iring, io_ctx.main())?);
+                    }
+                    let dory_num_columns = DoryGlobals::get_num_columns();
+                    let (q0_xlen, q1_xlen, q0_64, q1_64) =
+                        crate::poly::commitment::dory::precompute_dapoint_q_columns(
+                            &preprocessing.generators,
+                            dory_num_columns,
+                        );
+                    if budget.dapoints > 0 {
+                        let lazy_dp =
+                            mpc_core::protocols::rep3_ring::preprocessing::dapoint::random_dapoints_from_columns(
+                                &q0_xlen,
+                                &q1_xlen,
+                                budget.dapoints / 2,
+                                dory_num_columns,
+                                io_ctx.main(),
+                            )?;
+                        pool.set_dapoints(lazy_dp);
+                    }
+                    if budget.dapoints_iring > 0 {
+                        let lazy_dp_iring =
+                            mpc_core::protocols::rep3_ring::preprocessing::dapoint::random_dapoints_from_columns(
+                                &q0_64,
+                                &q1_64,
+                                budget.dapoints_iring / 2,
+                                dory_num_columns,
+                                io_ctx.main(),
+                            )?;
+                        pool.set_dapoints_iring(lazy_dp_iring);
+                    }
+                    pool.save(&pool_dir).ok();
+                }
+                pool
+            };
+
+            let state =
+                StateManagerWorker::new(&preprocessing, trace, advice_shares, final_memory_state, party_id, ram_k);
+            Rep3JoltDagWorker::prove::<TestF, TestPCS, TestFS, _>(state, &mut io_ctx, &mut preproc)
+        },
+        move |input, net| {
+            let (verifier_preprocessing, prover_preprocessing, program_io, ram_k) = input;
+            let twist_sumcheck_switch_index = rep3_proof_twist_switch_index(padded_len);
+            let state: StateManager<'_, TestF, TestFS, TestPCS> =
+                StateManager::new(&verifier_preprocessing, (*program_io).clone(), ram_k, twist_sumcheck_switch_index)
+                    .with_pcs_setup(&prover_preprocessing.generators);
+            Rep3JoltDag::prove(state, net)
+        },
+    );
+
+    let _dory_guard = DoryGlobals::initialize(DTH_ROOT_OF_K, padded_len);
+    let verifier_preprocessing = Arc::try_unwrap(verifier_preprocessing_arc).unwrap_or_else(|arc| (*arc).clone());
+    let io_device = Arc::try_unwrap(io_device_arc).unwrap_or_else(|arc| (*arc).clone());
+
+    TestFixture { proof: rep3_proof, verifier_preprocessing, io_device, ram_k }
+}
+
+/// Verify a `TestFixture` using the local jolt-core verifier.
+pub fn verify_test_fixture(fixture: TestFixture) -> Result<(), Box<dyn std::error::Error>> {
+    let TestFixture { proof, verifier_preprocessing, io_device, ram_k } = fixture;
+    let twist_sumcheck_switch_index = proof.twist_sumcheck_switch_index;
+    let verifier_program_io = JoltDevice {
+        inputs: io_device.inputs.clone(),
+        outputs: io_device.outputs.clone(),
+        panic: io_device.panic,
+        memory_layout: io_device.memory_layout.clone(),
+        trusted_advice: vec![],
+        untrusted_advice: vec![],
+    };
+    let verifier_sm = VanillaStateManager::from_proof(
+        proof,
+        Box::leak(Box::new(verifier_preprocessing)),
+        verifier_program_io,
+        ram_k,
+        twist_sumcheck_switch_index,
+    );
+    JoltDAG::verify::<TestF, TestFS, TestPCS>(verifier_sm).map_err(Into::into)
+}
+
+fn rep3_proof_twist_switch_index(padded_len: usize) -> usize {
+    let num_chunks = rayon::current_num_threads().next_power_of_two().min(padded_len);
+    let chunk_size = if num_chunks > 0 { padded_len / num_chunks } else { padded_len };
+    if chunk_size > 0 {
+        chunk_size.trailing_zeros() as usize
+    } else {
+        0
+    }
+}
+
 // ── Polynomial Comparison ───────────────────────────────────────────────────
 
 /// Compare two multilinear polynomials coefficient-by-coefficient.

@@ -165,7 +165,13 @@ impl MacroBuilder {
             .chain(&self.untrusted_func_args)
             .map(|(_, ty)| ty)
             .collect();
-        let inputs_vec: Vec<_> = self.func.sig.inputs.iter().collect();
+        let inputs_vec: Vec<_> = self
+            .pub_func_args
+            .iter()
+            .chain(&self.trusted_func_args)
+            .chain(&self.untrusted_func_args)
+            .map(|(name, ty)| quote! { #name: #ty })
+            .collect::<Vec<_>>();
         let inputs = quote! { #(#inputs_vec),* };
 
         quote! {
@@ -311,7 +317,13 @@ impl MacroBuilder {
         let fn_name = self.get_func_name();
         let fn_name_str = fn_name.to_string();
         let trace_to_file_fn_name = Ident::new(&format!("trace_{fn_name}_to_file"), fn_name.span());
-        let inputs_vec: Vec<_> = self.func.sig.inputs.iter().collect();
+        let inputs_vec: Vec<_> = self
+            .pub_func_args
+            .iter()
+            .chain(&self.trusted_func_args)
+            .chain(&self.untrusted_func_args)
+            .map(|(name, ty)| quote! { #name: #ty })
+            .collect::<Vec<_>>();
         let inputs = quote! { #(#inputs_vec),* };
         let set_pub_args = self.pub_func_args.iter().map(|(name, _)| {
             quote! {
@@ -589,7 +601,13 @@ impl MacroBuilder {
         });
 
         let fn_name = self.get_func_name();
-        let inputs_vec: Vec<_> = self.func.sig.inputs.iter().collect();
+        let inputs_vec: Vec<_> = self
+            .pub_func_args
+            .iter()
+            .chain(&self.trusted_func_args)
+            .chain(&self.untrusted_func_args)
+            .map(|(name, ty)| quote! { #name: #ty })
+            .collect::<Vec<_>>();
         let inputs = quote! { #(#inputs_vec),* };
         let output_type: Type = match &self.func.sig.output {
             ReturnType::Default => syn::parse_quote!(()),

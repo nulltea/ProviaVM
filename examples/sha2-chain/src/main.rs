@@ -77,12 +77,13 @@ fn main() -> eyre::Result<()> {
     let mut preprocessing_program = compile_sha2_chain(target_dir);
     let delegate = build_delegate_sha2_chain(compile_sha2_chain(target_dir));
     let input = [5u8; 32];
-    let native_output = sha2_chain(input, args.num_iters);
+    let num_iters = Public::from(args.num_iters);
+    let native_output = sha2_chain(input, num_iters);
 
     // Delegate proof to workers
     info!("delegating proof...");
     let program_id = format!("sha2-chain-{}", args.num_iters);
-    let (output, proof, program_io) = delegate(&mut client, input, args.num_iters, &program_id)?;
+    let (output, proof, program_io) = delegate(&mut client, num_iters, input, &program_id)?;
 
     // Verify the proof
     let (bytecode, memory_init, program_size) = preprocessing_program.decode();
@@ -93,7 +94,7 @@ fn main() -> eyre::Result<()> {
         JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, proof.trace_length);
     let verifier = build_verifier_sha2_chain(JoltVerifierPreprocessing::from(&prover_preprocessing));
     info!("verifying proof...");
-    let is_valid = verifier(output, program_io.panic, proof);
+    let is_valid = verifier(num_iters, output, program_io.panic, proof);
 
     if !is_valid {
         return Err(eyre::eyre!("proof verification failed"));

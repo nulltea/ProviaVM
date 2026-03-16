@@ -1,0 +1,21 @@
+[package]
+name = "zkpassport-guest"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[features]
+guest = []
+rv64 = ["jolt-inlines-rsa/rv64", "jolt-inlines-sha2/rv64", "zkpassport-core/rv64"]
+
+[dependencies]
+jolt = { package = "provia-jolt-sdk", path = "../../../provia-jolt-sdk" }
+jolt-inlines-sha2 = { path = "../../../jolt-inlines/sha2" }
+jolt-inlines-rsa = { path = "../../../jolt-inlines/rsa" }
+zkpassport-core = { path = "../core" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+
+[target.'cfg(target_arch = "riscv32")'.dependencies]
+spin = { version = "0.9", default-features = false, features = ["portable_atomic", "once", "mutex", "spin_mutex"] }
+portable-atomic = { version = "1", default-features = false, features = ["unsafe-assume-single-core"] }

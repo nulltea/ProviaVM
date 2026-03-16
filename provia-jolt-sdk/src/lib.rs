@@ -50,7 +50,7 @@ impl<T> core::ops::Deref for TrustedAdvice<T> {
 ///
 /// Bare (unwrapped) parameters default to untrusted advice (secret-shared in MPC).
 /// Use this wrapper when the verifier needs to see the input in plaintext.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct Public<T> {
     value: T,
