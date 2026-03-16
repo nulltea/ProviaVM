@@ -282,13 +282,23 @@ impl Rep3JoltDagWorker {
                             Rep3MultilinearPolynomial::Shared(Rep3SharedPoly::IRingScalars(p)) => p,
                             _ => unreachable!(),
                         };
-                        let arith_shares: Vec<mpc_core::protocols::rep3_ring::Rep3RingShare<ArithmeticWideInt>> =
-                            inc_poly.coeffs.iter().map(|op| op.as_arithmetic_wide()).collect();
+                        let mut active_rows = Vec::with_capacity(inc_poly.coeffs.len());
+                        let mut arith_shares = Vec::with_capacity(inc_poly.coeffs.len());
+                        for (row, operand) in inc_poly.coeffs.iter().enumerate() {
+                            if matches!(operand, crate::zkvm::instruction::Rep3Operand::Shared { .. }) {
+                                active_rows.push(row);
+                                arith_shares.push(operand.as_arithmetic_wide());
+                            }
+                        }
 
-                        // A2B → r2f_b2a → sub bias, chunked to limit RSS.
+                        // A2B → r2f_b2a → sub bias only on active rows; inactive rows stay zero.
                         let inc_b2a_chunk: usize =
                             std::env::var("INC_B2A_CHUNK").ok().and_then(|s| s.parse().ok()).unwrap_or(8 * 1024);
-                        let inc = biased_inc_b2a_many(&arith_shares, io_ctx, preproc, inc_b2a_chunk, 1, _party_id)?;
+                        let active_inc = biased_inc_b2a_many(&arith_shares, io_ctx, preproc, inc_b2a_chunk, 1, _party_id)?;
+                        let mut inc = vec![Rep3PrimeFieldShare::zero_share(); inc_poly.coeffs.len()];
+                        for (row, value) in active_rows.into_iter().zip(active_inc) {
+                            inc[row] = value;
+                        }
 
                         let dense = crate::poly::dense_mlpoly::Rep3DensePolynomial::new(inc);
                         match key {

@@ -14,10 +14,10 @@ fn prove_fibonacci_fixture() -> TestFixture {
     program.set_memory_size(10240);
     let inputs = postcard::to_stdvec(&9u32).unwrap();
 
-    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len) =
+    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len) =
         build_test_fixture_from_parts(&mut program, inputs, vec![], vec![]);
 
-    prove_test_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+    prove_test_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len)
 }
 
 #[test]

@@ -16,7 +16,8 @@ pub type Rep3ShareBundle = (Vec<Rep3Cycle>, Rep3Memory, Rep3ProgramIOInput);
 
 /// Execute `program`, generate 3-way Rep3 secret shares of the trace, and return
 /// all public metadata needed by the client to build `WorkerPayload`.
-/// Traces are padded to the next power of 2.
+/// Traces are padded to the next power of 2, but preprocessing still uses the
+/// raw trace length and rounds internally as needed.
 #[tracing::instrument(skip_all, name = "Program::generate_trace_shares")]
 pub fn generate_trace_shares<R: RngCore + CryptoRng>(
     program: &mut Program,

@@ -283,8 +283,12 @@ fn compute_right_operand_public(cycle: &Rep3Cycle) -> Option<u64> {
 struct Rep3WitnessData {
     /// Biased rd increment: `post - pre + 2^XLEN` (always non-negative, fits ArithmeticWideInt).
     rd_biased_inc: Vec<Rep3RingShare<ArithmeticWideInt>>,
+    /// Rows where `RdInc` is non-zero and needs B2A.
+    rd_inc_active: Vec<u8>,
     /// Biased ram increment: `post - pre + 2^XLEN` (always non-negative, fits ArithmeticWideInt).
     ram_biased_inc: Vec<Rep3RingShare<ArithmeticWideInt>>,
+    /// Rows where `RamInc` is non-zero and needs B2A.
+    ram_inc_active: Vec<u8>,
     write_lookup_output_to_rd: Vec<u8>,
     write_pc_to_rd: Vec<u8>,
     should_jump: Vec<u8>,
@@ -298,7 +302,9 @@ impl Rep3WitnessData {
     fn new(trace_len: usize, ram_d: usize, bytecode_d: usize) -> Self {
         Self {
             rd_biased_inc: vec![Rep3RingShare::default(); trace_len],
+            rd_inc_active: vec![0; trace_len],
             ram_biased_inc: vec![Rep3RingShare::default(); trace_len],
+            ram_inc_active: vec![0; trace_len],
             write_lookup_output_to_rd: vec![0; trace_len],
             write_pc_to_rd: vec![0; trace_len],
             should_jump: vec![0; trace_len],
@@ -778,6 +784,7 @@ where
                         PartyID::ID2 => {}
                     }
                     batch_ref.rd_biased_inc[i] = biased;
+                    batch_ref.rd_inc_active[i] = rd_write_flag;
                 }
 
                 let circuit_flags = cycle.instruction().circuit_flags();
@@ -809,6 +816,7 @@ where
                         PartyID::ID2 => {}
                     }
                     batch_ref.ram_biased_inc[i] = biased;
+                    batch_ref.ram_inc_active[i] = 1;
                 } else {
                     // Non-write cycles: inc = 0, biased = 2^XLEN
                     let mut biased = Rep3RingShare::<ArithmeticWideInt>::default();
@@ -1007,6 +1015,7 @@ where
             }
             CommittedPolynomial::RdInc => {
                 let biased_arith = std::mem::take(&mut batch.rd_biased_inc);
+                let active_rows = std::mem::take(&mut batch.rd_inc_active);
                 let n = biased_arith.len();
                 #[cfg(feature = "ring-msm")]
                 {
@@ -1015,10 +1024,17 @@ where
                     use crate::poly::Rep3SharedPoly;
                     let coeffs: Vec<Rep3Operand> = biased_arith
                         .iter()
-                        .map(|a| Rep3Operand::Shared {
-                            binary: Rep3RingShare::default(), // placeholder, IRingScalars MSM uses A2B internally
-                            arithmetic: Some(*a),
-                            public: None,
+                        .zip(active_rows.iter())
+                        .map(|(a, &is_active)| {
+                            if is_active != 0 {
+                                Rep3Operand::Shared {
+                                    binary: Rep3RingShare::default(), // placeholder, IRingScalars MSM uses A2B internally
+                                    arithmetic: Some(*a),
+                                    public: None,
+                                }
+                            } else {
+                                Rep3Operand::Public(0)
+                            }
                         })
                         .collect();
                     let compact = Rep3CompactPolynomial::from_operands(coeffs);
@@ -1026,10 +1042,11 @@ where
                 }
                 #[cfg(not(feature = "ring-msm"))]
                 {
-                    // Non-ring-msm: A2B → r2f_b2a → sub_public(2^XLEN), chunked to limit RSS.
-                    let _span = info_span!("rd_inc_biased_b2a", n, chunk = inc_b2a_chunk).entered();
-                    let inc = biased_inc_b2a_many(
+                    let active = active_rows.iter().filter(|&&flag| flag != 0).count();
+                    let _span = info_span!("rd_inc_biased_b2a", n, active, chunk = inc_b2a_chunk).entered();
+                    let inc = biased_inc_b2a_sparse_many(
                         &biased_arith,
+                        &active_rows,
                         io_ctx,
                         preproc,
                         inc_b2a_chunk,
@@ -1044,16 +1061,24 @@ where
             }
             CommittedPolynomial::RamInc => {
                 let biased_arith = std::mem::take(&mut batch.ram_biased_inc);
+                let active_rows = std::mem::take(&mut batch.ram_inc_active);
                 let n = biased_arith.len();
                 #[cfg(feature = "ring-msm")]
                 {
                     use crate::poly::{Rep3CompactPolynomial, Rep3SharedPoly};
                     let coeffs: Vec<Rep3Operand> = biased_arith
                         .iter()
-                        .map(|a| Rep3Operand::Shared {
-                            binary: Rep3RingShare::default(),
-                            arithmetic: Some(*a),
-                            public: None,
+                        .zip(active_rows.iter())
+                        .map(|(a, &is_active)| {
+                            if is_active != 0 {
+                                Rep3Operand::Shared {
+                                    binary: Rep3RingShare::default(),
+                                    arithmetic: Some(*a),
+                                    public: None,
+                                }
+                            } else {
+                                Rep3Operand::Public(0)
+                            }
                         })
                         .collect();
                     let compact = Rep3CompactPolynomial::from_operands(coeffs);
@@ -1061,9 +1086,11 @@ where
                 }
                 #[cfg(not(feature = "ring-msm"))]
                 {
-                    let _span = info_span!("ram_inc_biased_b2a", n, chunk = inc_b2a_chunk).entered();
-                    let inc = biased_inc_b2a_many(
+                    let active = active_rows.iter().filter(|&&flag| flag != 0).count();
+                    let _span = info_span!("ram_inc_biased_b2a", n, active, chunk = inc_b2a_chunk).entered();
+                    let inc = biased_inc_b2a_sparse_many(
                         &biased_arith,
+                        &active_rows,
                         io_ctx,
                         preproc,
                         inc_b2a_chunk,
@@ -1165,6 +1192,44 @@ where
             biased_field
         };
         inc.extend(biased_field.into_iter().map(|share| sub_shared_by_public(share, bias_f, party_id)));
+    }
+
+    Ok(inc)
+}
+
+pub(crate) fn biased_inc_b2a_sparse_many<F, N>(
+    biased_arith: &[Rep3RingShare<ArithmeticWideInt>],
+    active_rows: &[u8],
+    io_ctx: &mut IoContextPool<N>,
+    preproc: &mut PreprocessingPool<F>,
+    chunk_size: usize,
+    max_forks: usize,
+    party_id: PartyID,
+) -> eyre::Result<Vec<Rep3PrimeFieldShare<F>>>
+where
+    F: JoltField,
+    N: Rep3NetworkWorker,
+    Standard: Distribution<ArithmeticWideInt>,
+{
+    debug_assert_eq!(biased_arith.len(), active_rows.len());
+
+    let mut active_indices = Vec::with_capacity(biased_arith.len());
+    let mut active_biased = Vec::with_capacity(biased_arith.len());
+    for (row, (&biased, &is_active)) in biased_arith.iter().zip(active_rows.iter()).enumerate() {
+        if is_active != 0 {
+            active_indices.push(row);
+            active_biased.push(biased);
+        }
+    }
+
+    let mut inc = vec![Rep3PrimeFieldShare::zero_share(); biased_arith.len()];
+    if active_biased.is_empty() {
+        return Ok(inc);
+    }
+
+    let active_inc = biased_inc_b2a_many(&active_biased, io_ctx, preproc, chunk_size, max_forks, party_id)?;
+    for (row, value) in active_indices.into_iter().zip(active_inc) {
+        inc[row] = value;
     }
 
     Ok(inc)

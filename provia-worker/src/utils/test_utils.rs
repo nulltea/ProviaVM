@@ -283,6 +283,7 @@ pub fn build_test_fixture_from_parts(
     JoltDevice,
     usize,
     usize,
+    usize,
 ) {
     let mut rng = ChaCha12Rng::seed_from_u64(0);
     let (bytecode, memory_init, io_device, raw_trace_len, shares) =
@@ -302,7 +303,7 @@ pub fn build_test_fixture_from_parts(
 
     let ram_k = crate::utils::compute_ram_k(&shares[0].0, &preprocessing.shared);
 
-    (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+    (shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len)
 }
 
 /// Run the full MPC DAG proof from pre-built shares.
@@ -312,9 +313,11 @@ pub fn prove_test_fixture(
     verifier_preprocessing: JoltVerifierPreprocessing<TestF, TestPCS>,
     mut io_device: JoltDevice,
     ram_k: usize,
+    raw_trace_len: usize,
     padded_len: usize,
 ) -> TestFixture {
     io_device.outputs.truncate(io_device.outputs.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1));
+    let _dory_guard = DoryGlobals::initialize(DTH_ROOT_OF_K, padded_len);
 
     let preprocessing_arc = Arc::new(preprocessing);
     let verifier_preprocessing_arc = Arc::new(verifier_preprocessing);
@@ -356,7 +359,7 @@ pub fn prove_test_fixture(
             let mut preproc = {
                 use crate::zkvm::preprocessing::compute_edabit_budget;
                 use mpc_core::protocols::rep3_ring::edabits;
-                let budget = compute_edabit_budget(trace.len());
+                let budget = compute_edabit_budget(raw_trace_len);
                 let pool_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join(format!(".preprocessing/test/party_{}", io_ctx.party_idx()));
                 #[cfg(not(feature = "ring-msm"))]
@@ -438,7 +441,6 @@ pub fn prove_test_fixture(
         },
     );
 
-    let _dory_guard = DoryGlobals::initialize(DTH_ROOT_OF_K, padded_len);
     let verifier_preprocessing = Arc::try_unwrap(verifier_preprocessing_arc).unwrap_or_else(|arc| (*arc).clone());
     let io_device = Arc::try_unwrap(io_device_arc).unwrap_or_else(|arc| (*arc).clone());
 

@@ -1113,6 +1113,10 @@ impl<T: IntRing2k, F: PrimeField> LazyEdaBits<T, F>
 where
     Standard: Distribution<T>,
 {
+    fn expected_authoritative_alpha_len(total: usize) -> usize {
+        total.saturating_mul(T::K)
+    }
+
     /// Write this lazy source to `dir`.
     ///
     /// Creates `edabits_{K}.meta` (all parties) and `edabits_{K}.alpha2`
@@ -1161,7 +1165,21 @@ where
 
         let (alphas_flat_store, storage_mode) = if party_id == PartyID::ID2 && meta.total > 0 {
             let data_path = Self::authoritative_alpha_path(dir);
-            (backing_store::BackingStore::load_from_file(&data_path)?, EdaBitsStorageMode::P2Authoritative)
+            let store = backing_store::BackingStore::load_from_file(&data_path)?;
+            let expected_len = Self::expected_authoritative_alpha_len(meta.total);
+            if store.len() < expected_len {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "authoritative alpha store too short: have {} field elements, need {} for total={} u{} edabits",
+                        store.len(),
+                        expected_len,
+                        meta.total,
+                        T::K
+                    ),
+                ));
+            }
+            (store, EdaBitsStorageMode::P2Authoritative)
         } else {
             (backing_store::BackingStore::Empty, EdaBitsStorageMode::None)
         };

@@ -6,13 +6,12 @@ use std::path::PathBuf;
 
 use ::guest::{
     analyze_verify_passport, build_delegate_verify_passport, build_verifier_verify_passport,
-    commit_trusted_advice_verify_passport, compile_verify_passport,
-    memory_config_verify_passport, preprocess_prover_verify_passport, verify_passport,
+    commit_trusted_advice_verify_passport, compile_verify_passport, preprocess_prover_verify_passport,
+    verify_passport,
 };
 use ark_bn254::Fr;
 use clap::Parser;
 use eyre::Context;
-use provia_jolt_sdk::TrustedAdvice;
 use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
 use jolt_inlines_rsa::{
     build_witness_2048, modpow_65537_trace_len, mont_mul_2048_trace_len,
@@ -20,6 +19,7 @@ use jolt_inlines_rsa::{
     witness_seed_from_commitment_bytes, validate_witness_2048,
     Bytes2048, Witness2048,
 };
+use provia_jolt_sdk::TrustedAdvice;
 use serde::Deserialize;
 use tracing::info;
 use tracing_forest::ForestLayer;
@@ -31,7 +31,6 @@ use zkpassport_core::{PassportInput, PassportOutput};
 
 use provia_jolt_sdk::*;
 
-type F = Fr;
 type PCS = provia_jolt_sdk::PCS;
 
 #[derive(Deserialize)]
@@ -130,6 +129,12 @@ fn witness_seed_for_profile(
     Ok(witness_seed_from_commitment_bytes(&witness_bytes))
 }
 
+fn witness_seed_from_proof_commitment(
+    commitment: &<PCS as CommitmentScheme>::Commitment,
+) -> eyre::Result<[u8; 32]> {
+    witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
+}
+
 fn main() -> eyre::Result<()> {
     init_tracing();
 
@@ -166,18 +171,16 @@ fn main() -> eyre::Result<()> {
         verify_passport(TrustedAdvice::from(witness), input.clone());
     info!(?native_output, "native verification result");
 
-    // Trace analysis
-    println!("arch: {}", if cfg!(feature = "rv64") { "rv64" } else { "rv32" });
-    println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
-    println!("mont_square_2048 trace length: {}", mont_square_2048_trace_len());
-    println!("modpow_65537 trace length: {}", modpow_65537_trace_len());
-    let summary = analyze_verify_passport(TrustedAdvice::from(witness), input.clone());
-    let raw_trace_len = summary.trace_len();
-    let padded_trace_len = raw_trace_len.next_power_of_two();
-    println!("verify_passport raw trace length: {}", raw_trace_len);
-    println!("verify_passport padded trace length: {}", padded_trace_len);
-
     if args.native_only {
+        println!("arch: {}", if cfg!(feature = "rv64") { "rv64" } else { "rv32" });
+        println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
+        println!("mont_square_2048 trace length: {}", mont_square_2048_trace_len());
+        println!("modpow_65537 trace length: {}", modpow_65537_trace_len());
+        let summary = analyze_verify_passport(TrustedAdvice::from(witness), input.clone());
+        let raw_trace_len = summary.trace_len();
+        let padded_trace_len = raw_trace_len.next_power_of_two();
+        println!("verify_passport raw trace length: {}", raw_trace_len);
+        println!("verify_passport padded trace length: {}", padded_trace_len);
         info!("native-only mode, skipping proof delegation");
         return Ok(());
     }
@@ -207,9 +210,7 @@ fn main() -> eyre::Result<()> {
         commit_trusted_advice_verify_passport(TrustedAdvice::from(witness), &prover_preprocessing);
     let trusted_commitment =
         trusted_commitment.ok_or_else(|| eyre::eyre!("missing trusted advice commitment"))?;
-    input.rsa_challenge_seed =
-        witness_seed_from_commitment(&trusted_commitment)
-            .context("serializing trusted advice commitment")?;
+    input.rsa_challenge_seed = witness_seed_from_proof_commitment(&trusted_commitment)?;
 
     let delegate = build_delegate_verify_passport(compile_verify_passport(target_dir));
 
@@ -221,17 +222,23 @@ fn main() -> eyre::Result<()> {
     // Delegate proof
     info!("delegating proof...");
     let program_id = "zkpassport-verify";
+    let trusted_advice_seed = input.rsa_challenge_seed;
     let (output, proof, program_io) =
         delegate(&mut client, TrustedAdvice::from(witness), input, program_id)?;
     info!(trace_length = proof.trace_length, "proof received");
 
+    let proof_commitment = proof
+        .trusted_advice_commitment
+        .as_ref()
+        .ok_or_else(|| eyre::eyre!("proof missing trusted advice commitment"))?;
+    let proof_seed = witness_seed_from_proof_commitment(proof_commitment)?;
+    if proof_seed != trusted_advice_seed {
+        return Err(eyre::eyre!(
+            "RSA challenge seed mismatch for trusted advice commitment"
+        ));
+    }
+
     // Verify the proof
-    let (bytecode, memory_init, program_size) = preprocessing_program.decode();
-    let mut memory_config = memory_config_verify_passport();
-    memory_config.program_size = Some(program_size);
-    let memory_layout = MemoryLayout::new(&memory_config);
-    let prover_preprocessing: JoltProverPreprocessing<F, PCS> =
-        JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, proof.trace_length);
     let verifier =
         build_verifier_verify_passport(JoltVerifierPreprocessing::from(&prover_preprocessing));
     info!("verifying proof...");

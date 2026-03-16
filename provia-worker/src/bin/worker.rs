@@ -211,7 +211,7 @@ fn prove_loop(
         let party_id = io_ctx.party_id();
         let _span = info_span!("preprocessing", party_id = io_ctx.party_idx()).entered();
 
-        let budget = compute_edabit_budget(trace.len());
+        let budget = compute_edabit_budget(preprocess_trace_len);
         info!(?budget, "edabit budget");
         let counts = [budget.u8, budget.u16, budget.u32, budget.u64, budget.u128];
         let pool_dir = args.preproc_dir.join(format!("party_{}", my_id));

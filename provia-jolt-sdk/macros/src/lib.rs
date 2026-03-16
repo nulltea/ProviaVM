@@ -548,28 +548,27 @@ impl MacroBuilder {
                 let mut trusted_advice_bytes = vec![];
                 #(#set_trusted_advice_args;)*
 
+                #[cfg(feature = "rv64")]
+                let word_size = 8usize;
+                #[cfg(not(feature = "rv64"))]
+                let word_size = 4usize;
                 let max_trusted_advice_size = preprocessing.shared.memory_layout.max_trusted_advice_size;
-                let word_size = jolt::RAM_WORD_SIZE as usize;
-
-                let mut initial_memory_state = vec![0u64; (max_trusted_advice_size as usize) / word_size];
+                let max_size = (max_trusted_advice_size as usize) / word_size;
+                let mut initial_memory_state = vec![0u64; max_size];
 
                 let mut index = 1;
-                for chunk in trusted_advice_bytes.chunks(word_size) {
+                for chunk in trusted_advice_bytes.chunks(8) {
                     let mut word = [0u8; 8];
                     for (i, byte) in chunk.iter().enumerate() {
                         word[i] = *byte;
                     }
-                    let word = if word_size == 8 {
-                        u64::from_le_bytes(word)
-                    } else {
-                        u32::from_le_bytes(word[..4].try_into().unwrap()) as u64
-                    };
+                    let word = u64::from_le_bytes(word);
                     initial_memory_state[index] = word;
                     index += 1;
                 }
 
                 // Initialize Dory globals with specified parameters
-                let _guard = jolt::DoryGlobals::initialize(1, max_trusted_advice_size as usize / word_size);
+                let _guard = jolt::DoryGlobals::initialize(1, max_size);
 
                 let poly = MultilinearPolynomial::<jolt::F>::from(initial_memory_state);
                 let (commitment, hint) = jolt::PCS::commit(&poly, &preprocessing.generators);

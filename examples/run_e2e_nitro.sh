@@ -48,7 +48,7 @@ TRACE_SUFFIX="${NUM_ITERS}_${RAYON_THREADS}T_${MPC_QUIC_CONN_LANES}L_${NETWORK_F
 
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$REPO_DIR/.artifacts"}
 TRACE_DIR=${TRACE_DIR:-"$REPO_DIR/.traces"}
-PREPROC_DIR=${PREPROC_DIR:-"$REPO_DIR/provia-worker/.preprocessing"}
+PREPROC_DIR=${PREPROC_DIR:-"$REPO_DIR/.preprocessing"}
 
 # Ports — PORT_OFFSET shifts all port families for concurrent worktree runs
 PORT_OFFSET=${PORT_OFFSET:-0}

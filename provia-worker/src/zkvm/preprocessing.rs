@@ -70,11 +70,12 @@ impl std::fmt::Debug for PreprocessingBudget {
     }
 }
 
-/// Compute the EdaBit budget needed for the padded trace.
+/// Compute the EdaBit budget needed for a trace of `trace_len` active rows.
 ///
-/// Pass the padded trace length (`trace.len()`), which is always a power of 2.
-/// This must be the padded length because witness-gen consumers (rd_inc, ram_inc)
-/// operate on the full padded trace, not just non-NoOp cycles.
+/// Pass the raw trace length before power-of-two padding.
+/// `Jolt::prover_preprocess` rounds this up internally for preprocessing-sized
+/// structures, but the EdaBit consumers here budget only for rows that can
+/// actually consume preprocessing.
 ///
 /// Three consumer groups:
 /// - Suffix eval (per-table, per-phase): each non-NoOp cycle belongs to
@@ -84,7 +85,7 @@ impl std::fmt::Debug for PreprocessingBudget {
 ///   T::Half (left + right).  Overestimates because identity and interleaved
 ///   cycles are disjoint, but the split is unknown at budget time.
 /// - Witness gen: `5n` XlenInt (sparse operand cast, worst case) +
-///   `4n` XlenInt (rd_inc + ram_inc, each `2n`).
+///   `2n` ArithmeticWideInt (rd_inc + ram_inc active-row conversion).
 ///
 /// Phase ring types: suffix_len = (PHASES - 1 - phase) * LOG_M
 ///
@@ -139,7 +140,8 @@ pub fn compute_edabit_budget(trace_len: usize) -> PreprocessingBudget {
         .max()
         .unwrap_or(0);
     budget.dabits = max_dabits_per_cycle * n;
-    // Dory ring-msm preprocessing (ring-msm only).
+    // Dory ring-msm preprocessing (ring-msm only) still sizes its committed
+    // column work over the padded domain used by the proof system.
     #[cfg(feature = "ring-msm")]
     {
         let padded_n = n.next_power_of_two();
@@ -203,8 +205,9 @@ pub fn compute_edabit_budget(trace_len: usize) -> PreprocessingBudget {
     // Worst case: all n cycles emit CastToField or CastToFieldB2A.
     add_to_budget(&mut budget, XLEN, n);
 
-    // Biased inc field conversion: 2n ArithmeticWideInt (u64 for rv32) EdaBits.
-    // Used in witness.rs (non-ring-msm) or worker.rs (ring-msm) for A2B + r2f_b2a.
+    // Biased inc field conversion: worst-case 2n ArithmeticWideInt EdaBits.
+    // `RdInc` and `RamInc` now convert only active rows, so this remains a safe
+    // upper bound when every raw row writes rd and RAM.
     add_to_budget(&mut budget, 64, 2 * n);
 
     budget

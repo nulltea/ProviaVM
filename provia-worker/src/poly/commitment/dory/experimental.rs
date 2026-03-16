@@ -576,7 +576,7 @@ fn compute_row_commitment_shares_ring<N: Rep3Network>(
 
 /// Compute row commitment shares for an IRingScalars polynomial (biased inc, u64 scalars).
 ///
-/// All coefficients are Shared (biased_inc = post - pre + 2^XLEN, always non-negative).
+/// Shared coefficients carry biased increments; inactive rows may remain public zero.
 /// Uses U66 carry ring for wrap correction, 64-bit q doublings, and per-row bias correction
 /// to account for the public 2^XLEN bias added to each scalar.
 ///
@@ -608,7 +608,8 @@ fn compute_row_commitment_shares_iring<N: Rep3Network>(
 
     let party_id = io.id;
 
-    // Extract arithmetic u64 shares from all coefficients.
+    // Extract arithmetic u64 shares from all coefficients. Public coefficients
+    // are lifted to trivial shares so padded/non-write rows commit as zero.
     let ariths_u64: Vec<Rep3RingShare<u64>> = poly
         .coeffs
         .iter()
@@ -617,8 +618,8 @@ fn compute_row_commitment_shares_iring<N: Rep3Network>(
                 let wide = arithmetic.expect("IRingScalars: missing arithmetic share");
                 Rep3RingShare { a: RingElement(wide.a.0 as u64), b: RingElement(wide.b.0 as u64) }
             }
-            Rep3Operand::Public(_) => {
-                unreachable!("IRingScalars should not contain Public operands")
+            Rep3Operand::Public(v) => {
+                rep3_ring::arithmetic::promote_to_trivial_share(party_id, RingElement(*v as u64))
             }
         })
         .collect();
@@ -688,24 +689,43 @@ fn compute_row_commitment_shares_iring<N: Rep3Network>(
         let scalars_u64: Vec<u64> = ariths_u64[row_start..row_start + seg_len].iter().map(|s| s.a.0).collect();
         let msm: G1Projective = ArkVariableBaseMSM::msm_u64(&bases_aff[..seg_len], &scalars_u64, false);
 
-        // daPoint wrap correction — all positions are shared (no filtering needed).
+        // daPoint wrap correction and bias correction apply only to coefficients
+        // that actually carry the public 2^XLEN bias.
         let batch = dapoints.slice(dp_offset, 2 * seg_len);
         dp_offset += 2 * seg_len;
 
         let mut bits_all: Vec<Rep3RingShare<Bit>> = Vec::with_capacity(2 * seg_len);
         let mut q_all: Vec<G1Projective> = Vec::with_capacity(2 * seg_len);
+        let mut dp_selected: Vec<usize> = Vec::with_capacity(2 * seg_len);
         for seg_i in 0..seg_len {
-            bits_all.push(m0_bin[row_start + seg_i]);
-            q_all.push(q0_cols[seg_i]);
+            if matches!(poly.coeffs[row_start + seg_i], Rep3Operand::Shared { .. }) {
+                bits_all.push(m0_bin[row_start + seg_i]);
+                q_all.push(q0_cols[seg_i]);
+                dp_selected.push(seg_i);
+            }
         }
         for seg_i in 0..seg_len {
-            bits_all.push(m1_bin[row_start + seg_i]);
-            q_all.push(q1_cols[seg_i]);
+            if matches!(poly.coeffs[row_start + seg_i], Rep3Operand::Shared { .. }) {
+                bits_all.push(m1_bin[row_start + seg_i]);
+                q_all.push(q1_cols[seg_i]);
+                dp_selected.push(seg_len + seg_i);
+            }
         }
-        let corr_add = rep3::pointshare::dot_product_dapoints(&bits_all, &q_all, &batch, io)?;
+        let corr_add = if bits_all.is_empty() {
+            G1Projective::zero()
+        } else {
+            let filtered_batch = batch.select(&dp_selected);
+            rep3::pointshare::dot_product_dapoints(&bits_all, &q_all, &filtered_batch, io)?
+        };
 
-        let bias_correction: G1Projective =
-            if party_id == PartyID::ID0 { bias_bases[..seg_len].iter().copied().sum() } else { G1Projective::zero() };
+        let bias_correction: G1Projective = if party_id == PartyID::ID0 {
+            (0..seg_len)
+                .filter(|&seg_i| matches!(poly.coeffs[row_start + seg_i], Rep3Operand::Shared { .. }))
+                .map(|seg_i| bias_bases[seg_i])
+                .sum()
+        } else {
+            G1Projective::zero()
+        };
 
         if row < row_commitments.len() {
             row_commitments[row] += msm - corr_add - bias_correction;
