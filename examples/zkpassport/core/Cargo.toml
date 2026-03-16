@@ -3,5 +3,9 @@ name = "zkpassport-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+rv64 = ["jolt-inlines-rsa/rv64"]
+
 [dependencies]
+jolt-inlines-rsa = { path = "../../../jolt-inlines/rsa" }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }

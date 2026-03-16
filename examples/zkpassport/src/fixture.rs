@@ -7,12 +7,13 @@
 /// - CMS signedAttrs containing hash(LDS SO)
 /// - A real RSA PKCS#1v15 signature over hash(signedAttrs)
 /// - The corresponding DS public key
-use rand::rngs::OsRng;
+use rand::CryptoRng;
+use rand::RngCore;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::signature::{SignatureEncoding, Signer};
 use rsa::RsaPrivateKey;
-use sha2::{Digest, Sha256};
+use jolt_inlines_sha2::Sha256;
 use zkpassport_core::PassportInput;
 
 /// OID for SHA-256: 2.16.840.1.101.3.4.2.1
@@ -40,8 +41,17 @@ const OID_MESSAGE_DIGEST: &[u8] = &[
 /// `dob_yymmdd`: 6 ASCII chars, e.g. b"000315" for 2000-03-15
 /// `today_yyyymmdd`: e.g. 20260315
 pub fn generate_fixture(dob_yymmdd: &[u8; 6], today_yyyymmdd: u32) -> PassportInput {
+    generate_fixture_with_rng(dob_yymmdd, today_yyyymmdd, &mut rand::rngs::OsRng)
+}
+
+/// Generate a synthetic PassportInput using a caller-supplied RNG (for determinism in tests).
+pub fn generate_fixture_with_rng(
+    dob_yymmdd: &[u8; 6],
+    today_yyyymmdd: u32,
+    rng: &mut (impl CryptoRng + RngCore),
+) -> PassportInput {
     // 1. Generate RSA key pair
-    let private_key = RsaPrivateKey::new(&mut OsRng, 2048).expect("RSA keygen");
+    let private_key = RsaPrivateKey::new(rng, 2048).expect("RSA keygen");
     let public_key = private_key.to_public_key();
 
     // 2. Build TD3 MRZ (88 bytes)
@@ -51,24 +61,20 @@ pub fn generate_fixture(dob_yymmdd: &[u8; 6], today_yyyymmdd: u32) -> PassportIn
     let dg1 = build_dg1(&mrz);
 
     // 4. Hash DG1
-    let dg1_hash: [u8; 32] = Sha256::digest(&dg1).into();
+    let dg1_hash: [u8; 32] = Sha256::digest(&dg1);
 
     // 5. Build LDS Security Object (encapContent)
     let encap_content = build_lds_security_object(&dg1_hash);
 
     // 6. Hash encapContent → messageDigest value
-    let content_digest: [u8; 32] = Sha256::digest(&encap_content).into();
+    let content_digest: [u8; 32] = Sha256::digest(&encap_content);
 
     // 7. Build signedAttrs (DER SET OF)
     let signed_attrs_der = build_signed_attrs(&content_digest);
 
-    // 8. Hash signedAttrs and sign with RSA
-    let attrs_hash: [u8; 32] = Sha256::digest(&signed_attrs_der).into();
-    let signing_key = SigningKey::<Sha256>::new(private_key);
+    // 8. Sign signedAttrs with RSA PKCS#1v15-SHA256
+    let signing_key = SigningKey::<sha2::Sha256>::new(private_key);
     let signature: Vec<u8> = signing_key.sign(&signed_attrs_der).to_vec();
-
-    // Sanity check: verify the hash matches what RSA will verify against
-    let _ = attrs_hash;
 
     // 9. Serialize DS public key as PKCS#1 DER
     let ds_pubkey_der = public_key
@@ -82,6 +88,7 @@ pub fn generate_fixture(dob_yymmdd: &[u8; 6], today_yyyymmdd: u32) -> PassportIn
         encap_content,
         signed_attrs_der,
         signature,
+        rsa_challenge_seed: [0u8; 32],
         ds_pubkey_der,
         today_yyyymmdd,
     }
@@ -262,16 +269,16 @@ mod tests {
         assert!(is_over_18(parsed.dob_yymmdd, 20260315));
 
         // DG1 hash is in encap_content
-        let dg1_hash: [u8; 32] = Sha256::digest(&input.dg1).into();
+        let dg1_hash: [u8; 32] = Sha256::digest(&input.dg1);
         assert!(contains_subsequence(&input.encap_content, &dg1_hash));
 
         // encap_content hash is in signed_attrs
-        let content_digest: [u8; 32] = Sha256::digest(&input.encap_content).into();
+        let content_digest: [u8; 32] = Sha256::digest(&input.encap_content);
         assert!(contains_subsequence(&input.signed_attrs_der, &content_digest));
 
         // RSA signature verifies
         let pubkey = RsaPublicKey::from_pkcs1_der(&input.ds_pubkey_der).expect("decode pubkey");
-        let verifying_key = VerifyingKey::<Sha256>::new(pubkey);
+        let verifying_key = VerifyingKey::<sha2::Sha256>::new(pubkey);
         let sig = rsa::pkcs1v15::Signature::try_from(input.signature.as_slice()).expect("sig");
         verifying_key
             .verify(&input.signed_attrs_der, &sig)

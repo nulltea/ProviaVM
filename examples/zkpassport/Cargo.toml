@@ -6,6 +6,19 @@ edition = "2021"
 [workspace]
 exclude = ["guest"]
 
+[features]
+default = []
+rv64 = [
+    "guest/rv64",
+    "provia-jolt-sdk/rv64",
+    "provia-worker/rv64",
+    "jolt-core/rv64",
+    "tracer/rv64",
+    "jolt-inlines-sha2/rv64",
+    "jolt-inlines-rsa/rv64",
+    "zkpassport-core/rv64",
+]
+
 [dependencies]
 provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
 guest = { package = "zkpassport-guest", path = "./guest" }
@@ -22,10 +35,16 @@ tracing = "0.1"
 tracing-forest = { version = "0.1.6", default-features = false, features = ["ansi", "smallvec"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "registry", "std"] }
 
-# Crypto
-sha2 = "0.10.8"
+# Crypto (host-side fixture generation + RSA witness building)
+sha2 = { version = "0.10.8", features = ["oid"] }
 rsa = { version = "=0.9.6" }
 rand = "0.8"
+rand_chacha = "0.3"
+postcard = { version = "1.0.8", default-features = false, features = ["use-std"] }
+
+# Jolt inlines (host features for tracing + witness building)
+jolt-inlines-sha2 = { path = "../../jolt-inlines/sha2", features = ["host"] }
+jolt-inlines-rsa = { path = "../../jolt-inlines/rsa", features = ["host"] }
 
 # CMS/DER parsing for real SOD files
 cms = "0.2"

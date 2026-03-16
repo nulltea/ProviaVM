@@ -2,46 +2,52 @@
 
 extern crate alloc;
 
-use rsa::pkcs1::DecodeRsaPublicKey;
-use rsa::pkcs1v15::Pkcs1v15Sign;
-use rsa::RsaPublicKey;
-use sha2::{Digest, Sha256};
+use jolt::TrustedAdvice;
+use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
+use jolt_inlines_rsa::{Bytes2048, verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256};
+use jolt_inlines_sha2::Sha256;
 use zkpassport_core::{
-    contains_subsequence, is_over_18, parse_td3_mrz, unwrap_dg1_to_mrz, PassportInput, PassportOutput,
+    contains_subsequence, is_over_18, parse_td3_mrz, unwrap_dg1_to_mrz,
+    PassportInput, PassportOutput, Rsa65537TrustedAdviceWitness2048,
 };
 
-#[jolt::provable(stack_size = 131072, memory_size = 1048576, max_input_size = 65536)]
-fn verify_passport(input: PassportInput) -> PassportOutput {
+#[jolt::provable(
+    stack_size = 131072,
+    memory_size = 1048576,
+    max_input_size = 65536,
+    max_trusted_advice_size = 16384
+)]
+fn verify_passport(
+    witness: TrustedAdvice<Rsa65537TrustedAdviceWitness2048>,
+    input: PassportInput,
+) -> PassportOutput {
     // 1. Hash DG1
-    let dg1_hash: [u8; 32] = {
-        let mut h = Sha256::new();
-        h.update(&input.dg1);
-        h.finalize().into()
-    };
+    let dg1_hash: [u8; 32] = Sha256::digest(&input.dg1);
 
     // 2. Binding check: DG1 hash appears in LDS Security Object (encapContent)
     assert!(contains_subsequence(&input.encap_content, &dg1_hash), "DG1 hash not found in LDS Security Object");
 
     // 3. Hash encapContent → content digest
-    let content_digest: [u8; 32] = {
-        let mut h = Sha256::new();
-        h.update(&input.encap_content);
-        h.finalize().into()
-    };
+    let content_digest: [u8; 32] = Sha256::digest(&input.encap_content);
 
     // 4. Binding check: content digest appears in signedAttrs as messageDigest
     assert!(contains_subsequence(&input.signed_attrs_der, &content_digest), "content digest not found in signedAttrs");
 
-    // 5. Verify SOD signature: RSA PKCS#1v15 over SHA-256(signedAttrs)
-    let attrs_hash: [u8; 32] = {
-        let mut h = Sha256::new();
-        h.update(&input.signed_attrs_der);
-        h.finalize().into()
-    };
+    // 5. Verify SOD signature: RSA PKCS#1v15 with SHA-256 using trusted-advice witness
+    let attrs_hash: [u8; 32] = Sha256::digest(&input.signed_attrs_der);
 
-    let ds_pubkey = RsaPublicKey::from_pkcs1_der(&input.ds_pubkey_der).expect("invalid DS public key");
-    let scheme = Pkcs1v15Sign::new::<Sha256>();
-    ds_pubkey.verify(scheme, &attrs_hash, &input.signature).expect("SOD signature verification failed");
+    let modulus = parse_pkcs1_modulus(&input.ds_pubkey_der).expect("invalid DS public key");
+    assert!(input.signature.len() == 256, "signature must be 256 bytes");
+    let signature_bytes = Bytes2048(input.signature.as_slice().try_into().expect("signature length"));
+
+    let signature_verified = verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+        &witness,
+        &modulus,
+        &signature_bytes,
+        &input.rsa_challenge_seed,
+        &attrs_hash,
+    );
+    assert!(signature_verified, "SOD signature verification failed");
 
     // 6. Parse MRZ from DG1
     let mrz = unwrap_dg1_to_mrz(&input.dg1).expect("failed to unwrap DG1 to MRZ");

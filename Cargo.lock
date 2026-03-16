@@ -2816,6 +2816,7 @@ dependencies = [
  "tracing-tracy",
  "tracy-client",
  "zkemail-core",
+ "zkpassport-core",
 ]
 
 [[package]]
@@ -5008,6 +5009,14 @@ dependencies = [
 
 [[package]]
 name = "zkemail-core"
+version = "0.1.0"
+dependencies = [
+ "jolt-inlines-rsa",
+ "serde",
+]
+
+[[package]]
+name = "zkpassport-core"
 version = "0.1.0"
 dependencies = [
  "jolt-inlines-rsa",

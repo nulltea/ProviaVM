@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+pub use jolt_inlines_rsa::{Bytes2048, Rsa65537TrustedAdviceWitness2048, RsaReductionOp, RsaReductionStep2048};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,8 @@ pub struct PassportInput {
     pub signature: Vec<u8>,
     /// Document Signer RSA public key, PKCS#1 DER.
     pub ds_pubkey_der: Vec<u8>,
+    /// Transcript-bound seed for RSA witness compression checks.
+    pub rsa_challenge_seed: [u8; 32],
     /// Today's date as YYYYMMDD integer (e.g. 20260315).
     pub today_yyyymmdd: u32,
 }
