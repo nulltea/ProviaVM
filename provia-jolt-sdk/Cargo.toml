@@ -31,6 +31,7 @@ host = [
     "postcard/use-std",
     "serde/std",
 ]
+rv64 = ["jolt-core/rv64", "tracer/rv64", "provia-worker/rv64"]
 guest-std = [
     "postcard/use-std",
     "random",

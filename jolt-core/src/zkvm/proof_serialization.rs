@@ -36,6 +36,7 @@ pub struct JoltProof<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F
     #[cfg(feature = "zk")]
     pub blindfold_proof: Option<BlindFoldProof<F, C>>,
     pub untrusted_advice_commitment: Option<PCS::Commitment>,
+    pub trusted_advice_commitment: Option<PCS::Commitment>,
     pub trace_length: usize,
     pub ram_K: usize,
     pub bytecode_d: usize,
@@ -54,6 +55,7 @@ impl<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F>, FS: Transcrip
         self.opening_claims.serialize_with_mode(&mut writer, compress)?;
         self.commitments.serialize_with_mode(&mut writer, compress)?;
         self.untrusted_advice_commitment.serialize_with_mode(&mut writer, compress)?;
+        self.trusted_advice_commitment.serialize_with_mode(&mut writer, compress)?;
         self.proofs.serialize_with_mode(&mut writer, compress)?;
         #[cfg(feature = "zk")]
         self.blindfold_proof.serialize_with_mode(&mut writer, compress)?;
@@ -65,6 +67,7 @@ impl<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F>, FS: Transcrip
         self.opening_claims.serialized_size(compress)
             + self.commitments.serialized_size(compress)
             + self.untrusted_advice_commitment.serialized_size(compress)
+            + self.trusted_advice_commitment.serialized_size(compress)
             + self.proofs.serialized_size(compress)
             + {
                 #[cfg(feature = "zk")]
@@ -88,6 +91,7 @@ impl<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F>, FS: Transcrip
         self.opening_claims.check()?;
         self.commitments.check()?;
         self.untrusted_advice_commitment.check()?;
+        self.trusted_advice_commitment.check()?;
         self.proofs.check()?;
         #[cfg(feature = "zk")]
         self.blindfold_proof.check()?;
@@ -116,6 +120,8 @@ impl<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F>, FS: Transcrip
         let commitments = Vec::<PCS::Commitment>::deserialize_with_mode(&mut reader, compress, validate)?;
         let untrusted_advice_commitment =
             Option::<PCS::Commitment>::deserialize_with_mode(&mut reader, compress, validate)?;
+        let trusted_advice_commitment =
+            Option::<PCS::Commitment>::deserialize_with_mode(&mut reader, compress, validate)?;
         let proofs = Proofs::<F, C, PCS, FS>::deserialize_with_mode(&mut reader, compress, validate)?;
         #[cfg(feature = "zk")]
         let blindfold_proof = Option::<BlindFoldProof<F, C>>::deserialize_with_mode(&mut reader, compress, validate)?;
@@ -127,6 +133,7 @@ impl<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F>, FS: Transcrip
             opening_claims,
             commitments,
             untrusted_advice_commitment,
+            trusted_advice_commitment,
             proofs,
             #[cfg(feature = "zk")]
             blindfold_proof,
@@ -158,7 +165,7 @@ impl<F: JoltField, C: JoltCurve, PCS: CommitmentScheme<Field = F>, FS: Transcrip
             proofs: Rc::new(RefCell::new(self.proofs)),
             commitments: Rc::new(RefCell::new(self.commitments)),
             untrusted_advice_commitment: self.untrusted_advice_commitment,
-            trusted_advice_commitment: None,
+            trusted_advice_commitment: self.trusted_advice_commitment,
             #[cfg(feature = "zk")]
             blindfold_proof: self.blindfold_proof,
             ram_K: self.ram_K,

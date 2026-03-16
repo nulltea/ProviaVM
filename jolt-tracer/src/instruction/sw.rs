@@ -10,6 +10,11 @@ use crate::{
 use super::ld::LD;
 #[cfg(feature = "rv64")]
 use super::sd::SD;
+#[cfg(feature = "rv64")]
+use super::{
+    addi::ADDI, andi::ANDI, and::AND, ori::ORI, sll::SLL, slli::SLLI, srli::SRLI, xor::XOR,
+    virtual_assert_word_alignment::VirtualAssertWordAlignment,
+};
 use super::virtual_sw::VirtualSW;
 use super::Instruction;
 use super::RAMWrite;

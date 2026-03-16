@@ -87,7 +87,7 @@ where
             proofs: Rc::new(RefCell::new(proof.proofs)),
             commitments: Rc::new(RefCell::new(proof.commitments)),
             untrusted_advice_commitment: proof.untrusted_advice_commitment,
-            trusted_advice_commitment: None,
+            trusted_advice_commitment: proof.trusted_advice_commitment,
             #[cfg(feature = "zk")]
             blindfold_proof: proof.blindfold_proof,
             ram_K,

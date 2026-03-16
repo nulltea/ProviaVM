@@ -24,11 +24,12 @@ pub fn generate_trace_shares<R: RngCore + CryptoRng>(
     untrusted_advice: &[u8],
     trusted_advice: &[u8],
     rng: &mut R,
-) -> (Vec<tracer::instruction::Instruction>, Vec<(u64, u8)>, tracer::JoltDevice, [Rep3ShareBundle; 3]) {
+) -> (Vec<tracer::instruction::Instruction>, Vec<(u64, u8)>, tracer::JoltDevice, usize, [Rep3ShareBundle; 3]) {
     let (bytecode, memory_init, _) = program.decode();
     let (mut trace, memory, program_io) = program.trace(inputs, untrusted_advice, trusted_advice);
 
-    let padded_len = (trace.len() + 1).next_power_of_two();
+    let raw_trace_len = trace.len();
+    let padded_len = (raw_trace_len + 1).next_power_of_two();
     trace.resize(padded_len, tracer::instruction::Cycle::NoOp);
 
     let shared_preprocessing = JoltSharedPreprocessing {
@@ -48,7 +49,7 @@ pub fn generate_trace_shares<R: RngCore + CryptoRng>(
     let [mem0, mem1, mem2]: [Rep3Memory; 3] = memory_shares.try_into().expect("expected 3 shares");
     let [t0, t1, t2]: [Vec<Rep3Cycle>; 3] = trace_shares;
 
-    (bytecode, memory_init, program_io, [(t0, mem0, io0), (t1, mem1, io1), (t2, mem2, io2)])
+    (bytecode, memory_init, program_io, raw_trace_len, [(t0, mem0, io0), (t1, mem1, io1), (t2, mem2, io2)])
 }
 
 /// Share a vanilla trace into 3 Rep3 traces with binary-shared operands.

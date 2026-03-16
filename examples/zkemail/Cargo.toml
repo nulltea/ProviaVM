@@ -6,6 +6,19 @@ edition = "2021"
 [workspace]
 exclude = ["guest"]
 
+[features]
+default = []
+rv64 = [
+    "guest/rv64",
+    "provia-jolt-sdk/rv64",
+    "provia-worker/rv64",
+    "jolt-core/rv64",
+    "tracer/rv64",
+    "jolt-inlines-sha2/rv64",
+    "jolt-inlines-rsa/rv64",
+    "zkemail-core/rv64",
+]
+
 [dependencies]
 provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
 guest = { package = "zkemail-guest", path = "./guest" }
@@ -26,9 +39,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "regis
 cfdkim = { git = "https://github.com/risc0-labs/dkim" }
 mailparse = "0.14"
 trust-dns-resolver = "0.23"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 base64 = "0.21"
+jolt-inlines-sha2 = { path = "../../jolt-inlines/sha2", features = ["host"] }
 jolt-inlines-rsa = { path = "../../jolt-inlines/rsa", features = ["host"] }
+num-bigint = "0.4"
 slog = "2.7"
 
 # Shared types

@@ -1916,6 +1916,19 @@ dependencies = [
 name = "jolt-inlines-rsa"
 version = "0.1.0"
 dependencies = [
+ "ark-serialize",
+ "ctor 0.2.9",
+ "jolt-tracer",
+ "num-bigint",
+ "serde",
+ "sha2",
+ "tracing",
+]
+
+[[package]]
+name = "jolt-inlines-sha2"
+version = "0.1.0"
+dependencies = [
  "ctor 0.2.9",
  "jolt-tracer",
  "tracing",
@@ -4965,8 +4978,10 @@ dependencies = [
  "eyre",
  "jolt-core",
  "jolt-inlines-rsa",
+ "jolt-inlines-sha2",
  "jolt-tracer",
  "mailparse",
+ "num-bigint",
  "provia-jolt-sdk",
  "provia-worker",
  "serde",
@@ -4985,6 +5000,7 @@ dependencies = [
 name = "zkemail-core"
 version = "0.1.0"
 dependencies = [
+ "jolt-inlines-rsa",
  "serde",
 ]
 
@@ -4993,10 +5009,10 @@ name = "zkemail-guest"
 version = "0.1.0"
 dependencies = [
  "jolt-inlines-rsa",
+ "jolt-inlines-sha2",
  "portable-atomic",
  "provia-jolt-sdk",
  "serde",
- "sha2",
  "spin",
  "zkemail-core",
 ]

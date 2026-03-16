@@ -7,12 +7,10 @@ pub mod read_raf_checking;
 
 pub const LOG_K: usize = XLEN * 2;
 
-#[cfg(all(feature = "rv64", feature = "fewer-phases"))]
-compile_error!("fewer-phases is only supported for rv32; cannot combine with rv64");
-
-#[cfg(not(feature = "fewer-phases"))]
+// fewer-phases is only valid for rv32; silently ignored on rv64.
+#[cfg(not(all(feature = "fewer-phases", not(feature = "rv64"))))]
 pub const PHASES: usize = 8;
-#[cfg(feature = "fewer-phases")]
+#[cfg(all(feature = "fewer-phases", not(feature = "rv64")))]
 pub const PHASES: usize = 4;
 
 pub const LOG_M: usize = LOG_K / PHASES;

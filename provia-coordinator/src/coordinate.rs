@@ -33,6 +33,7 @@ pub fn coordinate_once<N: Rep3NetworkCoordinator>(
     on_request(&request);
 
     info!(
+        preprocess_trace_len = request.preprocess_trace_len,
         padded_len = request.padded_len,
         ram_k = request.ram_k,
         bytecode_len = request.bytecode.len(),

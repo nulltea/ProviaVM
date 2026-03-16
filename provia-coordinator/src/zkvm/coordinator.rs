@@ -64,6 +64,7 @@ impl Rep3JoltDag {
 
         // --- Receive untrusted advice commitment from workers ---
         Self::receive_untrusted_advice_commitment::<F, PCS, ProofTranscript, N>(&mut state, network)?;
+        Self::receive_trusted_advice_commitment::<F, PCS, ProofTranscript, N>(&mut state, network)?;
 
         // --- Append advice commitments to transcript (matching vanilla ordering) ---
         if let Some(ref untrusted_advice_commitment) = state.untrusted_advice_commitment {
@@ -199,8 +200,11 @@ impl Rep3JoltDag {
         drop(_stage4);
 
         // -------------------------------------------------------------------
-        // Untrusted advice opening proof (if advice commitment is present)
+        // Trusted/untrusted advice opening proofs
         // -------------------------------------------------------------------
+        if state.trusted_advice_commitment.is_some() {
+            Self::prove_trusted_advice_opening::<F, ProofTranscript, PCS, N>(&mut state, network)?;
+        }
         if state.untrusted_advice_commitment.is_some() {
             Self::prove_untrusted_advice_opening::<F, ProofTranscript, PCS, N>(&mut state, network)?;
         }
@@ -252,6 +256,7 @@ impl Rep3JoltDag {
             #[cfg(feature = "zk")]
             blindfold_proof,
             untrusted_advice_commitment: state.untrusted_advice_commitment.take(),
+            trusted_advice_commitment: state.trusted_advice_commitment.take(),
             trace_length,
             ram_K: state.ram_K,
             bytecode_d: state.preprocessing.shared.bytecode.d,
@@ -729,6 +734,61 @@ impl Rep3JoltDag {
         Ok(())
     }
 
+    fn prove_trusted_advice_opening<F, ProofTranscript, PCS, N>(
+        state: &mut StateManager<'_, F, ProofTranscript, PCS>,
+        network: &mut N,
+    ) -> eyre::Result<()>
+    where
+        F: JoltField,
+        ProofTranscript: Transcript,
+        PCS: CommitmentScheme<Field = F> + Rep3CommitmentScheme<F, ProofTranscript>,
+        N: Rep3NetworkCoordinator,
+    {
+        use jolt_core::poly::commitment::dory::DoryContext;
+        use jolt_core::poly::opening_proof::{OpeningPoint, SumcheckId, BIG_ENDIAN};
+        use jolt_core::utils::math::Math;
+        use jolt_core::zkvm::witness::VirtualPolynomial;
+
+        let ws = jolt_core::common::constants::RAM_WORD_SIZE as usize;
+        let max_size = state.program_io.memory_layout.max_trusted_advice_size as usize / ws;
+        let log_advice_size = max_size.next_power_of_two().log_2();
+        let total_memory_vars = state.ram_K.log_2();
+
+        let (r_val_point, _) = state
+            .accumulator
+            .get_virtual_polynomial_opening(VirtualPolynomial::RamVal, SumcheckId::RamReadWriteChecking);
+        let r_address = &r_val_point.r[..total_memory_vars];
+        let high_bits = total_memory_vars - log_advice_size;
+        let advice_opening_point: Vec<F::Challenge> = r_address[high_bits..].to_vec();
+
+        network.broadcast_request(advice_opening_point.clone())?;
+
+        let eval_shares: Vec<F> = network.receive_responses()?;
+        let advice_eval: F = eval_shares.into_iter().sum();
+
+        let opening_point = OpeningPoint::<BIG_ENDIAN, F>::new(advice_opening_point.clone());
+        state.accumulator.openings.insert(OpeningId::TrustedAdvice, (opening_point, advice_eval));
+
+        DoryGlobals::initialize_context(1, max_size.next_power_of_two(), DoryContext::TrustedAdvice, None);
+        DoryGlobals::set_context(DoryContext::TrustedAdvice);
+
+        let commitment = state.trusted_advice_commitment.as_ref().unwrap();
+        let pcs_setup = state.pcs_setup.expect("pcs_setup must be set for trusted advice opening proof");
+        let (proof, _blinding) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::coordinate_prove(
+            pcs_setup,
+            &mut state.transcript,
+            network,
+            &advice_opening_point,
+            &advice_eval,
+            commitment,
+            None,
+        )?;
+        state.proofs.insert(ProofKeys::TrustedAdviceProof, ProofData::OpeningProof(proof));
+
+        DoryGlobals::set_context(DoryContext::Main);
+        Ok(())
+    }
+
     fn receive_untrusted_advice_commitment<F, PCS, ProofTranscript, N>(
         state: &mut StateManager<'_, F, ProofTranscript, PCS>,
         network: &mut N,
@@ -751,6 +811,34 @@ impl Rep3JoltDag {
             None
         } else {
             eyre::ensure!(present.len() == 3, "expected untrusted advice commitment shares from all 3 parties");
+            let shares: Vec<&MaybeShared<PCS::Commitment>> = present.iter().collect();
+            Some(<PCS as Rep3CommitmentScheme<F, ProofTranscript>>::combine_commitment_shares(&shares))
+        };
+        Ok(())
+    }
+
+    fn receive_trusted_advice_commitment<F, PCS, ProofTranscript, N>(
+        state: &mut StateManager<'_, F, ProofTranscript, PCS>,
+        network: &mut N,
+    ) -> eyre::Result<()>
+    where
+        F: JoltField,
+        ProofTranscript: Transcript,
+        PCS: CommitmentScheme<Field = F> + Rep3CommitmentScheme<F, ProofTranscript>,
+        N: Rep3NetworkCoordinator,
+    {
+        let commitments: Vec<Option<MaybeShared<PCS::Commitment>>> = network.receive_responses()?;
+        eyre::ensure!(
+            commitments.len() == 3,
+            "expected trusted advice commitment from 3 parties, got {}",
+            commitments.len()
+        );
+
+        let present: Vec<MaybeShared<PCS::Commitment>> = commitments.into_iter().flatten().collect();
+        state.trusted_advice_commitment = if present.is_empty() {
+            None
+        } else {
+            eyre::ensure!(present.len() == 3, "expected trusted advice commitment shares from all 3 parties");
             let shares: Vec<&MaybeShared<PCS::Commitment>> = present.iter().collect();
             Some(<PCS as Rep3CommitmentScheme<F, ProofTranscript>>::combine_commitment_shares(&shares))
         };

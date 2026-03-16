@@ -26,8 +26,9 @@ use serde::Serialize;
 /// Payload sent to each worker containing their secret share + public data.
 ///
 /// NOTE: No plaintext advice or io_device — only shares and public metadata.
-/// Workers compute `padded_len` (= trace.len()) and `ram_k` locally from the
-/// shared trace (RAM addresses are public in Rep3RAMAccess).
+/// The client sends the raw trace length used for preprocessing. Workers
+/// compute `padded_len` (= trace.len()) and `ram_k` locally from the shared
+/// trace (RAM addresses are public in Rep3RAMAccess).
 #[derive(Serialize)]
 struct WorkerPayloadRef<'a> {
     trace: &'a [Rep3Cycle],
