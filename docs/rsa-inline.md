@@ -1,73 +1,175 @@
-# RSA Inline Instructions
+# RSA Inline and zkemail Design
 
 ## Overview
 
-RSA-2048 signature verification in the zkVM guest uses Montgomery multiplication as the core primitive. A single `modpow_65537` requires 19 Montgomery multiplications (1 to enter Montgomery form, 16 squarings, 1 final multiply, 1 to exit). Each Montgomery multiplication is implemented as an inline instruction that expands into virtual RISC-V instructions at trace time.
+The repository now has two RSA-2048 verification paths:
 
-## Montgomery Multiplication (SOS Method)
+- The original Montgomery-inline path in `jolt-inlines/rsa`, built around `modpow_65537`.
+- The zkemail fast path, built around a **trusted-advice witness** that avoids replaying modular multiplication in the guest trace.
 
-Computes `z = x * y * R^{-1} mod m` where `R = 2^(LIMB_BITS * LIMBS_2048)`.
+The Montgomery path remains the generic fallback library implementation. zkemail uses the trusted-advice witness path because it is materially smaller in trace size.
 
-Uses 8 virtual registers and a memory-resident accumulator (`zz[0..2n]`). The outer loop iterates `n` times (n = LIMBS_2048), each iteration performing two inner `add_mul_vvw` passes of `n` multiply-accumulates.
+## Naive Montgomery Path
 
-### Instruction Counts
+### What it does
 
-| Architecture | Limbs (n) | Virtual instructions per inline | Fits u16 (65535)? |
-|---|---|---|---|
-| rv32 | 64 | ~91,716 | No |
-| rv64 | 32 | ~23,000 | Yes |
+The original path verifies RSA-2048 signatures by computing:
 
-## Route A: rv32 Two-Phase Split
+- one Montgomery multiply to enter Montgomery form,
+- sixteen squarings for the `65537` addition chain,
+- one multiply by the original signature,
+- one Montgomery multiply to leave Montgomery form.
 
-Since rv32 exceeds the u16 `inline_sequence_remaining` limit, the outer loop is split at `SPLIT_AT = n/2 = 32`:
+That is `19` Montgomery operations per verification.
 
-- **Phase 1** (`MONT_MUL_2048_P1`, funct7=0x02): init + outer loop iterations `[0..32)`. Stores carry to `CARRY_OFFSET` in memory.
-- **Phase 2** (`MONT_MUL_2048_P2`, funct7=0x03): loads carry from `CARRY_OFFSET`, outer loop iterations `[32..64)` + final reduction.
+### Guest hot path
 
-Each phase emits ~45K virtual instructions, fitting within u16.
+The core primitive is the Montgomery inline in `jolt-inlines/rsa`:
 
-Guest code issues two inline instructions sequentially:
-```
-mont_mul_2048_p1_inline(x, y, ctx);
-mont_mul_2048_p2_inline(x, y, ctx);
-```
+- rv32 uses `64` `u32` limbs and splits the inline into two phases.
+- rv64 uses `32` `u64` limbs and fits the multiply in a single inline.
 
-## Route B: rv64 Single Inline
+Current micro-kernel trace sizes:
 
-rv64 uses 32 u64 limbs, producing ~23K virtual instructions that fit in a single inline:
+| Metric | rv32 | rv64 |
+|---|---:|---:|
+| `mont_mul_2048` | `92,188` | `23,569` |
+| `mont_square_2048` | `92,188` | `23,569` |
+| `modpow_65537` | `1,751,572` | `447,811` |
 
-- **Single phase** (`MONT_MUL_2048`, funct7=0x02): init + full outer loop + final reduction.
+### Why zkemail moved away from it
 
-Guest code issues one inline instruction:
-```
-mont_mul_2048_inline(x, y, ctx);
-```
+Even with the inline, the Montgomery path still dominates the guest trace because the verifier is effectively replaying bigint arithmetic inside the VM. It is still useful as:
 
-## Memory Layout
+- the generic RSA fallback path,
+- a correctness reference,
+- a baseline for measuring any future RSA inline work.
 
-`MontContext2048` (`repr(C)`):
+It is no longer the zkemail hot path.
 
-| Offset | Size | Field |
-|---|---|---|
-| 0 | n * LB | `z` — output / zz_lo workspace |
-| n * LB | n * LB | `modulus` — m |
-| 2n * LB | LB | `n0inv` — k = -m^{-1} mod 2^LIMB_BITS |
-| 2n * LB + LB | n * LB | `_scratch[0..n]` — zz_hi workspace |
-| 3n * LB + LB | LB | `_scratch[n]` — carry (rv32 inter-phase transfer) |
+## Trusted-Advice Witness Path
 
-Where LB = `LIMB_BYTES` (4 on rv32, 8 on rv64), n = `LIMBS_2048` (64 on rv32, 32 on rv64).
+### High-level flow
 
-## Feature Gating
+zkemail now verifies RSA using a trusted-advice witness in `jolt-inlines/rsa::witness`:
 
-All route selection is compile-time via `#[cfg(feature = "rv64")]`:
-- `lib.rs`: opcode constants and `init_inlines()` registration
-- `sdk.rs`: guest inline calls and host dispatch
-- `sequence_builder.rs`: entry points
+1. The host parses the DKIM email and PKCS#1 RSA public key.
+2. The host builds an `Rsa65537TrustedAdviceWitness2048`.
+3. The host commits that trusted advice in the proving flow.
+4. The host derives the public `rsa_challenge_seed` from the trusted-advice commitment.
+5. The guest:
+   - parses the modulus from DER,
+   - binds modulus and signature against the witness,
+   - checks sampled remainder residues,
+   - checks weighted residue consistency across the `65537` chain,
+   - checks the final PKCS#1 v1.5 SHA-256 encoded message.
 
-## Future: Route C (Advice + Polynomial Fingerprint)
+### Witness contents
 
-An O(n) verification approach using advice values and polynomial fingerprinting, similar to upstream Jolt's secp256k1 inline. The host would compute the Montgomery multiplication result and quotient, inject them as advice, and the guest would verify via a polynomial identity check at a random evaluation point.
+`Rsa65537TrustedAdviceWitness2048` contains:
 
-**Status**: Not implemented. Currently unsound in ProviaVM's architecture because the client generates the trace (and thus controls the advice values) while also knowing the evaluation points (deterministic PRNG with hardcoded seed). A malicious client could craft adversarial advice that satisfies the polynomial check without performing correct computation.
+- `modulus: Bytes2048`
+- `signature: Bytes2048`
+- `steps: [RsaReductionStep2048; 17]`
 
-**When viable**: Route C becomes sound when trace generation happens inside MPC, where no single party has full knowledge of both the advice values and the evaluation point. This requires implementing MPC-based tracing in ProviaVM, which shifts trust away from the client.
+Each `RsaReductionStep2048` contains:
+
+- `op: RsaReductionOp`
+- `quotient_residues: [u32; 4]`
+- `remainder_residues: [u32; 4]`
+- `remainder: Bytes2048`
+
+The `17` steps are:
+
+- `16` squaring reductions,
+- `1` final multiply-by-base reduction.
+
+### Why this is smaller
+
+The guest no longer computes or replays full Montgomery multiplication. Instead it:
+
+- carries cached residues for the quotient and remainder,
+- recomputes only sampled remainder residue checks from bytes,
+- folds step errors with seeded weights,
+- performs one exact PKCS#1 decode check at the end.
+
+This makes the trace mostly about byte scanning and residue arithmetic, not bigint multiplication.
+
+## Trust Model
+
+### Soundness
+
+This path is **commitment-bound** and **probabilistic**.
+
+- The trusted-advice witness is committed before proving.
+- The public `rsa_challenge_seed` is derived from that trusted-advice commitment.
+- The guest uses that seed to choose sampled remainder checks and seeded row weights.
+
+The guest is **not** replaying the bigint arithmetic exactly. Soundness comes from:
+
+- exact modulus/signature binding,
+- exact `remainder < modulus`,
+- exact PKCS#1 output check,
+- seeded probabilistic consistency checks over the reduction chain.
+
+### Privacy
+
+This design focuses on binding, not privacy.
+
+- The witness is carried via trusted advice.
+- There is no blindfold/private witness layer in this path today.
+- If witness privacy becomes important, it would require a follow-up design, not a parameter tweak.
+
+### Profile-only seed path
+
+The example `--profile-rsa` path does **not** commit trusted advice. It derives the seed from serialized trusted-advice bytes only so the local profiler can trace the same guest logic without running the full proving setup.
+
+That shortcut is:
+
+- acceptable for local profiling,
+- not proof-bound,
+- not the model used by the actual prove/verify flow.
+
+## Final Result
+
+Current measured results after cleanup:
+
+| Metric | rv32 | rv64 |
+|---|---:|---:|
+| worker `zkemail_trace_only` | `521,157` | `499,474` |
+| example `verify_dkim` | `591,526` | `578,941` |
+
+rv64 is only a modest improvement now because zkemail no longer spends most of its time inside Montgomery arithmetic. The remaining hot path is mostly:
+
+- byte-to-residue scanning,
+- sampled residue recomputation,
+- seeded weighted folding,
+- PKCS#1 decoding.
+
+Those operations benefit less from wider guest limbs than the old Montgomery kernel did.
+
+## What Is Still Worth Exploring
+
+### Worth exploring
+
+1. rv64-specific witness verifier fast path
+
+- Compute residues from `u64` chunks or native rv64 limb loads instead of always scanning `4`-byte chunks.
+- This is the most plausible next micro-optimization because the trusted-advice witness verifier is now the hot path.
+
+2. Witness layout optimization
+
+- Replace byte-oriented remainder storage/scanning with a limb-oriented representation if it reduces guest trace without making host preparation too expensive.
+- The main target is remainder handling, not quotient handling; quotient bytes are already avoided.
+
+3. Deeper proof-system work
+
+- Move more of the weighted residue/opening logic out of guest code and into committed-opening verification if a stronger or smaller protocol is needed.
+- That would be a proof-system change, not a local zkemail refactor.
+
+### Not worth prioritizing for zkemail now
+
+- `mont_square_2048`
+- further Montgomery inline shrinking
+
+Those optimizations only matter for the legacy Montgomery fallback path. They are no longer the right next move for zkemail itself.

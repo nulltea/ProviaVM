@@ -2,7 +2,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-pub use jolt_inlines_rsa::{Bytes2048, Rsa65537Witness2048, RsaModStepWitness2048, RsaStepOp};
+pub use jolt_inlines_rsa::{Bytes2048, Rsa65537TrustedAdviceWitness2048, RsaReductionOp, RsaReductionStep2048};
 use serde::{Deserialize, Serialize};
 
 /// Pre-parsed DKIM verification input.

@@ -103,23 +103,23 @@ impl<'de> Deserialize<'de> for Bytes2048 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RsaStepOp {
+pub enum RsaReductionOp {
     Square,
     MulBase,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RsaModStepWitness2048 {
-    pub op: RsaStepOp,
+pub struct RsaReductionStep2048 {
+    pub op: RsaReductionOp,
     pub quotient_residues: [u32; 4],
     pub remainder_residues: [u32; 4],
     pub remainder: Bytes2048,
 }
 
-impl Default for RsaModStepWitness2048 {
+impl Default for RsaReductionStep2048 {
     fn default() -> Self {
         Self {
-            op: RsaStepOp::Square,
+            op: RsaReductionOp::Square,
             quotient_residues: [0u32; 4],
             remainder_residues: [0u32; 4],
             remainder: Bytes2048::default(),
@@ -128,21 +128,21 @@ impl Default for RsaModStepWitness2048 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Rsa65537Witness2048 {
+pub struct Rsa65537TrustedAdviceWitness2048 {
     pub modulus: Bytes2048,
     pub signature: Bytes2048,
-    pub steps: [RsaModStepWitness2048; 17],
+    pub steps: [RsaReductionStep2048; 17],
 }
 
 #[cfg(feature = "host")]
-pub fn challenge_seed_from_commitment_bytes(bytes: &[u8]) -> [u8; 32] {
+pub fn trusted_advice_witness_seed_from_commitment_bytes(bytes: &[u8]) -> [u8; 32] {
     let mut seed_input = b"rsa-witness-challenge-v1".to_vec();
     seed_input.extend_from_slice(bytes);
     sha2::Sha256::digest(&seed_input).into()
 }
 
 #[cfg(feature = "host")]
-pub fn challenge_seed_from_serialized_commitment<C>(
+pub fn trusted_advice_witness_seed_from_commitment<C>(
     commitment: &C,
 ) -> Result<[u8; 32], ark_serialize::SerializationError>
 where
@@ -150,33 +150,33 @@ where
 {
     let mut bytes = Vec::new();
     commitment.serialize_compressed(&mut bytes)?;
-    Ok(challenge_seed_from_commitment_bytes(&bytes))
+    Ok(trusted_advice_witness_seed_from_commitment_bytes(&bytes))
 }
 
 #[cfg(feature = "host")]
-pub fn build_rsa65537_witness(
+pub fn build_rsa65537_trusted_advice_witness(
     modulus: &[Limb; LIMBS_2048],
     signature: &Bytes2048,
-) -> Rsa65537Witness2048 {
+) -> Rsa65537TrustedAdviceWitness2048 {
     use num_bigint::BigUint;
 
     let modulus_bytes = Bytes2048::from(limbs_to_bytes_be_2048(modulus));
     let modulus_bn = BigUint::from_bytes_be(&modulus_bytes.0);
     let signature_bn = BigUint::from_bytes_be(&signature.0);
-    let mut steps = [RsaModStepWitness2048::default(); 17];
+    let mut steps = [RsaReductionStep2048::default(); 17];
     let mut current = signature_bn.clone();
 
-    for (idx, step) in steps.iter_mut().enumerate() {
-        let (lhs, rhs, op) = if idx < 16 {
-            (&current, &current, RsaStepOp::Square)
+    for (step_idx, step) in steps.iter_mut().enumerate() {
+        let (lhs, rhs, op) = if step_idx < 16 {
+            (&current, &current, RsaReductionOp::Square)
         } else {
-            (&current, &signature_bn, RsaStepOp::MulBase)
+            (&current, &signature_bn, RsaReductionOp::MulBase)
         };
         let product = lhs * rhs;
         let quotient = &product / &modulus_bn;
         let remainder = &product % &modulus_bn;
         let remainder_bytes = biguint_to_bytes2048(&remainder);
-        *step = RsaModStepWitness2048 {
+        *step = RsaReductionStep2048 {
             op,
             quotient_residues: Residues2048::from_bytes(&biguint_to_bytes2048(&quotient)).0,
             remainder_residues: Residues2048::from_bytes(&remainder_bytes).0,
@@ -185,7 +185,7 @@ pub fn build_rsa65537_witness(
         current = remainder;
     }
 
-    Rsa65537Witness2048 {
+    Rsa65537TrustedAdviceWitness2048 {
         modulus: modulus_bytes,
         signature: *signature,
         steps,
@@ -193,10 +193,10 @@ pub fn build_rsa65537_witness(
 }
 
 #[cfg(feature = "host")]
-pub fn validate_rsa65537_witness(
+pub fn validate_rsa65537_trusted_advice_witness(
     modulus: &[Limb; LIMBS_2048],
     signature: &Bytes2048,
-    witness: &Rsa65537Witness2048,
+    witness: &Rsa65537TrustedAdviceWitness2048,
 ) -> bool {
     use num_bigint::BigUint;
 
@@ -209,12 +209,17 @@ pub fn validate_rsa65537_witness(
     let signature_bn = BigUint::from_bytes_be(&signature.0);
     let mut current = signature_bn.clone();
 
-    for (idx, step) in witness.steps.iter().enumerate() {
-        let expected_op = if idx < 16 { RsaStepOp::Square } else { RsaStepOp::MulBase };
+    for (step_idx, step) in witness.steps.iter().enumerate() {
+        let expected_op = if step_idx < 16 {
+            RsaReductionOp::Square
+        } else {
+            RsaReductionOp::MulBase
+        };
         if step.op != expected_op {
             return false;
         }
-        let rhs = if idx < 16 { &current } else { &signature_bn };
+
+        let rhs = if step_idx < 16 { &current } else { &signature_bn };
         let quotient_bn = (&current * rhs) / &modulus_bn;
         let quotient = biguint_to_bytes2048(&quotient_bn);
         let remainder = BigUint::from_bytes_be(&step.remainder.0);
@@ -233,8 +238,8 @@ pub fn validate_rsa65537_witness(
     true
 }
 
-pub fn rsa_verify_witness_pkcs1v15_sha256(
-    witness: &Rsa65537Witness2048,
+pub fn verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
+    witness: &Rsa65537TrustedAdviceWitness2048,
     modulus: &[Limb; LIMBS_2048],
     signature: &Bytes2048,
     challenge_seed: &[u8; 32],
@@ -247,41 +252,45 @@ pub fn rsa_verify_witness_pkcs1v15_sha256(
 
     let modulus_residues = Residues2048::from_bytes(&witness.modulus);
     let signature_residues = Residues2048::from_bytes(&witness.signature);
-    let mut current_bytes = witness.signature;
+    let mut encoded_message = witness.signature;
     let mut current_residues = signature_residues;
     let mut aggregated_error = [0u32; 4];
-    let mut challenge_state = challenge_state_init(challenge_seed);
-    let sampled_steps = sampled_step_mask(challenge_seed);
+    let mut seeded_weight_state = seeded_weight_state_init(challenge_seed);
+    let sampled_step_checks = sampled_step_checks(challenge_seed);
 
-    for (idx, step) in witness.steps.iter().enumerate() {
-        let expected_op = if idx < 16 { RsaStepOp::Square } else { RsaStepOp::MulBase };
+    for (step_idx, step) in witness.steps.iter().enumerate() {
+        let expected_op = if step_idx < 16 {
+            RsaReductionOp::Square
+        } else {
+            RsaReductionOp::MulBase
+        };
         if step.op != expected_op || !bytes_lt(&step.remainder, &witness.modulus) {
             return false;
         }
 
-        let rhs_residues = if idx < 16 { current_residues } else { signature_residues };
+        let rhs_residues = if step_idx < 16 { current_residues } else { signature_residues };
         let remainder_residues = Residues2048(step.remainder_residues);
-        if sampled_steps[idx] && Residues2048::from_bytes(&step.remainder).0 != step.remainder_residues {
+        if sampled_step_checks[step_idx] && Residues2048::from_bytes(&step.remainder).0 != step.remainder_residues {
             return false;
         }
-        let weights = challenge_weights(&challenge_state);
+
         accumulate_residue_error(
             &mut aggregated_error,
-            &weights,
+            &seeded_weights(&seeded_weight_state),
             &current_residues,
             &rhs_residues,
             &Residues2048(step.quotient_residues),
             &modulus_residues,
             &remainder_residues,
         );
-        advance_challenge_state(&mut challenge_state, idx);
+        advance_seeded_weight_state(&mut seeded_weight_state, step_idx);
 
-        current_bytes = step.remainder;
+        encoded_message = step.remainder;
         current_residues = remainder_residues;
     }
 
     aggregated_error.iter().all(|&value| value == 0)
-        && verify_pkcs1v15_sha256_encoded(current_bytes.as_array(), message_hash)
+        && verify_pkcs1v15_sha256_encoded(encoded_message.as_array(), message_hash)
 }
 
 #[derive(Clone, Copy)]
@@ -293,7 +302,7 @@ impl Residues2048 {
         let mut i = 0usize;
         while i < RSA_CHECK_PRIMES.len() {
             let (prime, complement) = RSA_CHECK_PRIMES[i];
-            residues[i] = bytes_be_residue(bytes.as_array(), prime, complement);
+            residues[i] = bytes_be_mod_prime(bytes.as_array(), prime, complement);
             i += 1;
         }
         Self(residues)
@@ -316,24 +325,24 @@ fn accumulate_residue_error(
         let right_mul =
             reduce_near_u32_prime((quotient.0[i] as u64) * (modulus.0[i] as u64), prime, complement);
         let right = reduce_near_u32_prime((right_mul as u64) + (remainder.0[i] as u64), prime, complement);
-        let error = add_mod(
-            left,
-            neg_mod(right, prime),
-            prime,
-            complement,
-        );
+        let error = add_mod(left, neg_mod(right, prime), prime, complement);
         let weighted_error = reduce_near_u32_prime((weights[i] as u64) * (error as u64), prime, complement);
         aggregated_error[i] = add_mod(aggregated_error[i], weighted_error, prime, complement);
         i += 1;
     }
 }
 
-fn bytes_be_residue(bytes: &[u8; 256], prime: u32, complement: u32) -> u32 {
+fn bytes_be_mod_prime(bytes: &[u8; 256], prime: u32, complement: u32) -> u32 {
     let mut acc = 0u32;
     let mut chunk_idx = 0usize;
     while chunk_idx < 64 {
-        let i = chunk_idx * 4;
-        let limb = u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+        let byte_idx = chunk_idx * 4;
+        let limb = u32::from_be_bytes([
+            bytes[byte_idx],
+            bytes[byte_idx + 1],
+            bytes[byte_idx + 2],
+            bytes[byte_idx + 3],
+        ]);
         acc = reduce_near_u32_prime((acc as u64) * (complement as u64) + (limb as u64), prime, complement);
         chunk_idx += 1;
     }
@@ -356,7 +365,7 @@ fn reduce_near_u32_prime(value: u64, prime: u32, complement: u32) -> u32 {
     folded as u32
 }
 
-fn challenge_state_init(seed: &[u8; 32]) -> [u32; 4] {
+fn seeded_weight_state_init(seed: &[u8; 32]) -> [u32; 4] {
     let mut state = [0u32; 4];
     let mut i = 0usize;
     while i < RSA_CHECK_PRIMES.len() {
@@ -368,20 +377,20 @@ fn challenge_state_init(seed: &[u8; 32]) -> [u32; 4] {
     state
 }
 
-fn sampled_step_mask(seed: &[u8; 32]) -> [bool; 17] {
-    let mut mask = [false; 17];
-    mask[16] = true;
+fn sampled_step_checks(seed: &[u8; 32]) -> [bool; 17] {
+    let mut checks = [false; 17];
+    checks[16] = true;
     let mut i = 0usize;
     while i < 4 {
         let start = i * 4;
         let raw = u32::from_le_bytes([seed[start], seed[start + 1], seed[start + 2], seed[start + 3]]);
-        mask[(raw as usize) % 16] = true;
+        checks[(raw as usize) % 16] = true;
         i += 1;
     }
-    mask
+    checks
 }
 
-fn challenge_weights(state: &[u32; 4]) -> [u32; 4] {
+fn seeded_weights(state: &[u32; 4]) -> [u32; 4] {
     let mut weights = [0u32; 4];
     let mut i = 0usize;
     while i < weights.len() {
@@ -391,7 +400,7 @@ fn challenge_weights(state: &[u32; 4]) -> [u32; 4] {
     weights
 }
 
-fn advance_challenge_state(state: &mut [u32; 4], step_idx: usize) {
+fn advance_seeded_weight_state(state: &mut [u32; 4], step_idx: usize) {
     let mut i = 0usize;
     while i < state.len() {
         state[i] = state[i]
@@ -406,7 +415,11 @@ fn add_mod(lhs: u32, rhs: u32, prime: u32, complement: u32) -> u32 {
 }
 
 fn neg_mod(value: u32, prime: u32) -> u32 {
-    if value == 0 { 0 } else { prime - value }
+    if value == 0 {
+        0
+    } else {
+        prime - value
+    }
 }
 
 fn bytes_lt(lhs: &Bytes2048, rhs: &Bytes2048) -> bool {
@@ -462,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_and_verify_rsa_witness() {
+    fn test_build_and_verify_trusted_advice_witness() {
         use rsa::pkcs1::EncodeRsaPublicKey;
         use rsa::signature::{SignatureEncoding, Signer};
         use sha2::Digest;
@@ -474,18 +487,12 @@ mod tests {
         let modulus = parse_pkcs1_modulus(&public_key_der).unwrap();
         let message = b"from:test@example.com\r\nto:bob@example.com\r\n";
         let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
-        let signature = Bytes2048(
-            signing_key
-                .sign(message)
-                .to_vec()
-                .try_into()
-                .unwrap(),
-        );
-        let witness = build_rsa65537_witness(&modulus, &signature);
-        let challenge_seed = challenge_seed_from_commitment_bytes(b"witness-commitment");
+        let signature = Bytes2048(signing_key.sign(message).to_vec().try_into().unwrap());
+        let witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
+        let challenge_seed = trusted_advice_witness_seed_from_commitment_bytes(b"witness-commitment");
         let hash: [u8; 32] = sha2::Sha256::digest(message).into();
-        assert!(validate_rsa65537_witness(&modulus, &signature, &witness));
-        assert!(rsa_verify_witness_pkcs1v15_sha256(
+        assert!(validate_rsa65537_trusted_advice_witness(&modulus, &signature, &witness));
+        assert!(verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
             &witness,
             &modulus,
             &signature,
@@ -495,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rejects_wrong_witness_step() {
+    fn test_rejects_wrong_trusted_advice_witness_step() {
         use rsa::pkcs1::EncodeRsaPublicKey;
         use rsa::signature::{SignatureEncoding, Signer};
         use sha2::Digest;
@@ -508,12 +515,12 @@ mod tests {
         let message = b"subject:test\r\n";
         let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
         let signature = Bytes2048(signing_key.sign(message).to_vec().try_into().unwrap());
-        let mut witness = build_rsa65537_witness(&modulus, &signature);
+        let mut witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
         witness.steps[3].quotient_residues[0] ^= 1;
         let hash: [u8; 32] = sha2::Sha256::digest(message).into();
-        let challenge_seed = challenge_seed_from_commitment_bytes(b"witness-commitment");
-        assert!(!validate_rsa65537_witness(&modulus, &signature, &witness));
-        assert!(!rsa_verify_witness_pkcs1v15_sha256(
+        let challenge_seed = trusted_advice_witness_seed_from_commitment_bytes(b"witness-commitment");
+        assert!(!validate_rsa65537_trusted_advice_witness(&modulus, &signature, &witness));
+        assert!(!verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
             &witness,
             &modulus,
             &signature,
@@ -523,14 +530,14 @@ mod tests {
     }
 
     #[test]
-    fn test_bindings_reject_wrong_signature() {
+    fn test_rejects_wrong_signature_binding() {
         let modulus = bytes_be_to_limbs_2048(&[0x11u8; 256]);
-        let witness = Rsa65537Witness2048 {
+        let witness = Rsa65537TrustedAdviceWitness2048 {
             modulus: Bytes2048([0x11u8; 256]),
             signature: Bytes2048([0x22u8; 256]),
-            steps: [RsaModStepWitness2048::default(); 17],
+            steps: [RsaReductionStep2048::default(); 17],
         };
-        assert!(!rsa_verify_witness_pkcs1v15_sha256(
+        assert!(!verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
             &witness,
             &modulus,
             &Bytes2048([0x33u8; 256]),
@@ -553,16 +560,13 @@ mod tests {
         let message = b"sampled-residue-check";
         let signing_key = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(private_key);
         let signature = Bytes2048(signing_key.sign(message).to_vec().try_into().unwrap());
-        let mut witness = build_rsa65537_witness(&modulus, &signature);
-        let challenge_seed = challenge_seed_from_commitment_bytes(b"witness-commitment");
-        let sampled_steps = sampled_step_mask(&challenge_seed);
-        let tampered_idx = sampled_steps[..16]
-            .iter()
-            .position(|&sampled| sampled)
-            .unwrap_or(0);
+        let mut witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
+        let challenge_seed = trusted_advice_witness_seed_from_commitment_bytes(b"witness-commitment");
+        let sampled_checks = sampled_step_checks(&challenge_seed);
+        let tampered_idx = sampled_checks[..16].iter().position(|&check| check).unwrap_or(0);
         witness.steps[tampered_idx].remainder_residues[0] ^= 1;
         let hash: [u8; 32] = sha2::Sha256::digest(message).into();
-        assert!(!rsa_verify_witness_pkcs1v15_sha256(
+        assert!(!verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
             &witness,
             &modulus,
             &signature,
