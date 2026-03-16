@@ -27,12 +27,14 @@ use jolt_core::host::Program;
 use jolt_core::poly::commitment::dory::{DoryCommitmentScheme, DoryGlobals};
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::transcripts::Blake2bTranscript;
+use jolt_core::zkvm::r1cs::constraints::UNIFORM_R1CS;
+use jolt_core::zkvm::r1cs::inputs::R1CSCycleInputs;
 use jolt_core::zkvm::verifier::JoltDAG;
 use jolt_core::zkvm::proof_serialization::JoltProof;
 use jolt_core::zkvm::state_manager::StateManager as VanillaStateManager;
 use jolt_core::zkvm::state_manager::{ProofData, ProofKeys};
 use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
-use jolt_core::zkvm::{JoltProverPreprocessing, JoltRV64IMAC, JoltVerifierPreprocessing};
+use jolt_core::zkvm::{Jolt, JoltProverPreprocessing, JoltRVArch, JoltRV64IMAC, JoltVerifierPreprocessing};
 use tracer::JoltDevice;
 use zkemail_core::{DKIMInput, Rsa65537TrustedAdviceWitness2048};
 use jolt_inlines_rsa::{
@@ -131,7 +133,7 @@ fn build_zkemail_fixture() -> (DKIMInput, Rsa65537TrustedAdviceWitness2048) {
     let signature = Bytes2048(input.signature.clone().try_into().unwrap());
     let header_hash: [u8; 32] = sha2::Sha256::digest(&input.signed_headers).into();
     let witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
-    let final_be = witness.steps[16].remainder.0;
+    let final_be = jolt_inlines_rsa::verify::limbs_to_bytes_be_2048(&witness.steps[16].remainder_limbs.0);
     assert!(verify_pkcs1v15_sha256_encoded(&final_be, &header_hash));
     input.rsa_challenge_seed = challenge_seed_from_witness(&witness);
 
@@ -162,10 +164,26 @@ fn build_public_fixture(
 ) {
     let mut program = build_program();
     let (inputs, untrusted_advice, trusted_advice) = build_inputs();
+    build_public_fixture_from_parts(&mut program, inputs, untrusted_advice, trusted_advice)
+}
+
+fn build_public_fixture_from_parts(
+    program: &mut Program,
+    inputs: Vec<u8>,
+    untrusted_advice: Vec<u8>,
+    trusted_advice: Vec<u8>,
+) -> (
+    [(Vec<Rep3Cycle>, provia_worker::host::memory::Rep3Memory, provia_worker::host::jolt_device::Rep3ProgramIOInput); 3],
+    JoltProverPreprocessing<F, PCS>,
+    JoltVerifierPreprocessing<F, PCS>,
+    tracer::JoltDevice,
+    usize,
+    usize,
+) {
 
     let mut rng = ChaCha12Rng::seed_from_u64(0);
-    let (bytecode, memory_init, io_device, shares) =
-        generate_trace_shares(&mut program, &inputs, &untrusted_advice, &trusted_advice, &mut rng);
+    let (bytecode, memory_init, io_device, raw_trace_len, shares) =
+        generate_trace_shares(program, &inputs, &untrusted_advice, &trusted_advice, &mut rng);
 
     // Shares are already padded to next power of 2 by generate_trace_shares.
     let padded_len = shares[0].0.len();
@@ -176,7 +194,7 @@ fn build_public_fixture(
         bytecode.clone(),
         io_device.memory_layout.clone(),
         memory_init.clone(),
-        padded_len,
+        raw_trace_len,
     );
     let verifier_preprocessing = JoltVerifierPreprocessing::from(&preprocessing);
 
@@ -186,12 +204,14 @@ fn build_public_fixture(
     (shares, preprocessing, verifier_preprocessing, io_device, ram_K, padded_len)
 }
 
-fn build_dag_fixture(trace_file: &str) -> DagFixture {
-    let _test_guard = dag_test_lock();
-    let _tracing_guard = init_tracing(trace_file, std::path::Path::new("traces"));
-
-    let (shares, preprocessing, verifier_preprocessing, mut io_device, ram_K, padded_len) =
-        build_public_fixture(trace_file);
+fn prove_dag_fixture(
+    shares: [(Vec<Rep3Cycle>, provia_worker::host::memory::Rep3Memory, provia_worker::host::jolt_device::Rep3ProgramIOInput); 3],
+    preprocessing: JoltProverPreprocessing<F, PCS>,
+    verifier_preprocessing: JoltVerifierPreprocessing<F, PCS>,
+    mut io_device: tracer::JoltDevice,
+    ram_k: usize,
+    padded_len: usize,
+) -> DagFixture {
 
     // Truncate trailing zeros from outputs, matching what vanilla Jolt::prove does.
     // Both coordinator and verifier must see the same truncated outputs for Fiat-Shamir.
@@ -214,7 +234,7 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
             let preprocessing_arc = Arc::clone(&preprocessing_arc_for_workers);
             move |party_idx| {
                 let (trace, memory, advice_shares) = shares_arc[party_idx].clone();
-                (trace, memory, Arc::clone(&preprocessing_arc), ram_K, advice_shares)
+                (trace, memory, Arc::clone(&preprocessing_arc), ram_k, advice_shares)
             }
         },
         {
@@ -226,12 +246,12 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
                     Arc::clone(&verifier_preprocessing_arc),
                     Arc::clone(&prover_preprocessing_arc),
                     Arc::clone(&io_device_arc),
-                    ram_K,
+                    ram_k,
                 )
             }
         },
         move |input, io_ctx| {
-            let (trace, final_memory_state, preprocessing, ram_K, advice_shares) = input;
+            let (trace, final_memory_state, preprocessing, ram_k, advice_shares) = input;
             let mut io_ctx = io_ctx;
             let party_id = io_ctx.party_id();
 
@@ -309,17 +329,15 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
             };
 
             let state =
-                StateManagerWorker::new(&preprocessing, trace, advice_shares, final_memory_state, party_id, ram_K);
+                StateManagerWorker::new(&preprocessing, trace, advice_shares, final_memory_state, party_id, ram_k);
             Rep3JoltDagWorker::prove::<F, PCS, FS, _>(state, &mut io_ctx, &mut preproc)
         },
         move |input, net| {
-            let (verifier_preprocessing, prover_preprocessing, program_io, ram_K) = input;
+            let (verifier_preprocessing, prover_preprocessing, program_io, ram_k) = input;
             // Match twist_sumcheck_switch_index computation in provia-worker zkvm/mod.rs.
-            let num_chunks = rayon::current_num_threads().next_power_of_two().min(padded_len);
-            let chunk_size = if num_chunks > 0 { padded_len / num_chunks } else { padded_len };
-            let twist_sumcheck_switch_index = if chunk_size > 0 { chunk_size.trailing_zeros() as usize } else { 0 };
+            let twist_sumcheck_switch_index = rep3_proof_twist_switch_index(padded_len);
             let state: StateManager<'_, F, FS, PCS> =
-                StateManager::new(&verifier_preprocessing, (*program_io).clone(), ram_K, twist_sumcheck_switch_index)
+                StateManager::new(&verifier_preprocessing, (*program_io).clone(), ram_k, twist_sumcheck_switch_index)
                     .with_pcs_setup(&prover_preprocessing.generators);
             Rep3JoltDag::prove(state, net)
         },
@@ -332,7 +350,29 @@ fn build_dag_fixture(trace_file: &str) -> DagFixture {
     let verifier_preprocessing = Arc::try_unwrap(verifier_preprocessing_arc).unwrap_or_else(|arc| (*arc).clone());
     let io_device = Arc::try_unwrap(io_device_arc).unwrap_or_else(|arc| (*arc).clone());
 
-    DagFixture { proof: rep3_proof, verifier_preprocessing, io_device, ram_k: ram_K }
+    DagFixture { proof: rep3_proof, verifier_preprocessing, io_device, ram_k }
+}
+
+fn build_zkemail_dag_fixture(trace_file: &str) -> DagFixture {
+    let _tracing_guard = init_tracing(trace_file, std::path::Path::new("traces"));
+
+    let mut program = configure_zkemail_program();
+    let (input, witness) = build_zkemail_fixture();
+    let untrusted_advice = postcard::to_stdvec(&input).unwrap();
+    let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
+    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len) =
+        build_public_fixture_from_parts(&mut program, vec![], untrusted_advice, trusted_advice);
+
+    prove_dag_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+}
+
+fn build_dag_fixture(trace_file: &str) -> DagFixture {
+    let _tracing_guard = init_tracing(trace_file, std::path::Path::new("traces"));
+
+    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len) =
+        build_public_fixture(trace_file);
+
+    prove_dag_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
 }
 
 fn verify_dag_fixture(fixture: DagFixture) -> Result<(), Box<dyn std::error::Error>> {
@@ -358,6 +398,7 @@ fn verify_dag_fixture(fixture: DagFixture) -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn dag_correct() {
+    let _test_guard = dag_test_lock();
     let fixture = build_dag_fixture("dag_correct.json");
     verify_dag_fixture(fixture).expect("Vanilla verification of MPC proof failed");
 }
@@ -365,6 +406,7 @@ fn dag_correct() {
 #[cfg(feature = "zk")]
 #[test]
 fn dag_zk_tampered_y_com_fails() {
+    let _test_guard = dag_test_lock();
     let mut fixture = build_dag_fixture("dag_zk_tampered_y_com.json");
     assert!(fixture.proof.blindfold_proof.is_some(), "DAG ZK proof must include BlindFold");
 
@@ -393,6 +435,7 @@ fn dag_zk_tampered_y_com_fails() {
 #[cfg(feature = "zk")]
 #[test]
 fn dag_zk_tampered_stage5_hidden_claim_fails() {
+    let _test_guard = dag_test_lock();
     let mut fixture = build_dag_fixture("dag_zk_tampered_stage5_hidden_claim.json");
     assert!(fixture.proof.blindfold_proof.is_some(), "DAG ZK proof must include BlindFold");
 
@@ -418,6 +461,7 @@ fn dag_zk_tampered_stage5_hidden_claim_fails() {
 
 #[test]
 fn zkemail_trace_only() {
+    let _test_guard = dag_test_lock();
     let mut program = configure_zkemail_program();
 
     let (input, prepared) = build_zkemail_fixture();
@@ -431,6 +475,13 @@ fn zkemail_trace_only() {
     eprintln!("Panic: {}", io_device.panic);
     eprintln!("Outputs: {:?}", &io_device.outputs[..io_device.outputs.len().min(64)]);
     assert!(!io_device.panic, "zkemail guest panicked");
+}
+
+#[test]
+fn zkemail_dag_correct() {
+    let _test_guard = dag_test_lock();
+    let fixture = build_zkemail_dag_fixture("zkemail_dag_correct.json");
+    verify_dag_fixture(fixture).expect("Vanilla verification of zkemail MPC proof failed");
 }
 
 fn rep3_proof_twist_switch_index(padded_len: usize) -> usize {

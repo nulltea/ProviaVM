@@ -5,7 +5,7 @@ use serde::de::{Error as DeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
-use crate::verify::{limbs_to_bytes_be_2048, verify_pkcs1v15_sha256_encoded};
+use crate::verify::{bytes_be_to_limbs_2048, limbs_to_bytes_be_2048, verify_pkcs1v15_sha256_encoded};
 use crate::{Limb, LIMBS_2048};
 
 const RSA_CHECK_PRIMES: [(u32, u32); 4] = [
@@ -102,6 +102,65 @@ impl<'de> Deserialize<'de> for Bytes2048 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct Limbs2048(pub [Limb; LIMBS_2048]);
+
+impl Default for Limbs2048 {
+    fn default() -> Self {
+        Self([0 as Limb; LIMBS_2048])
+    }
+}
+
+impl Serialize for Limbs2048 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = [0u8; 256];
+        encode_limbs_le(&self.0, &mut bytes);
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for Limbs2048 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Limbs2048Visitor;
+
+        impl<'de> Visitor<'de> for Limbs2048Visitor {
+            type Value = Limbs2048;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("exactly 256 little-endian limb bytes")
+            }
+
+            fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                if value.len() != 256 {
+                    return Err(E::invalid_length(value.len(), &self));
+                }
+                let mut out = [0u8; 256];
+                out.copy_from_slice(value);
+                Ok(Limbs2048(decode_limbs_le(&out)))
+            }
+
+            fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                self.visit_bytes(&value)
+            }
+        }
+
+        deserializer.deserialize_bytes(Limbs2048Visitor)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RsaReductionOp {
     Square,
@@ -113,7 +172,7 @@ pub struct RsaReductionStep2048 {
     pub op: RsaReductionOp,
     pub quotient_residues: [u32; 4],
     pub remainder_residues: [u32; 4],
-    pub remainder: Bytes2048,
+    pub remainder_limbs: Limbs2048,
 }
 
 impl Default for RsaReductionStep2048 {
@@ -122,7 +181,7 @@ impl Default for RsaReductionStep2048 {
             op: RsaReductionOp::Square,
             quotient_residues: [0u32; 4],
             remainder_residues: [0u32; 4],
-            remainder: Bytes2048::default(),
+            remainder_limbs: Limbs2048::default(),
         }
     }
 }
@@ -175,12 +234,12 @@ pub fn build_rsa65537_trusted_advice_witness(
         let product = lhs * rhs;
         let quotient = &product / &modulus_bn;
         let remainder = &product % &modulus_bn;
-        let remainder_bytes = biguint_to_bytes2048(&remainder);
+        let remainder_limbs = Limbs2048(biguint_to_limbs_2048(&remainder));
         *step = RsaReductionStep2048 {
             op,
             quotient_residues: Residues2048::from_bytes(&biguint_to_bytes2048(&quotient)).0,
-            remainder_residues: Residues2048::from_bytes(&remainder_bytes).0,
-            remainder: remainder_bytes,
+            remainder_residues: Residues2048::from_limbs(&remainder_limbs.0).0,
+            remainder_limbs,
         };
         current = remainder;
     }
@@ -222,9 +281,9 @@ pub fn validate_rsa65537_trusted_advice_witness(
         let rhs = if step_idx < 16 { &current } else { &signature_bn };
         let quotient_bn = (&current * rhs) / &modulus_bn;
         let quotient = biguint_to_bytes2048(&quotient_bn);
-        let remainder = BigUint::from_bytes_be(&step.remainder.0);
+        let remainder = BigUint::from_bytes_be(&limbs_to_bytes_be_2048(&step.remainder_limbs.0));
         if Residues2048::from_bytes(&quotient).0 != step.quotient_residues
-            || Residues2048::from_bytes(&step.remainder).0 != step.remainder_residues
+            || Residues2048::from_limbs(&step.remainder_limbs.0).0 != step.remainder_residues
             || remainder >= modulus_bn.clone()
         {
             return false;
@@ -252,11 +311,11 @@ pub fn verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
 
     let modulus_residues = Residues2048::from_bytes(&witness.modulus);
     let signature_residues = Residues2048::from_bytes(&witness.signature);
-    let mut encoded_message = witness.signature;
     let mut current_residues = signature_residues;
     let mut aggregated_error = [0u32; 4];
     let mut seeded_weight_state = seeded_weight_state_init(challenge_seed);
     let sampled_step_checks = sampled_step_checks(challenge_seed);
+    let modulus_limbs = bytes_be_to_limbs_2048(modulus_bytes.as_array());
 
     for (step_idx, step) in witness.steps.iter().enumerate() {
         let expected_op = if step_idx < 16 {
@@ -264,13 +323,15 @@ pub fn verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
         } else {
             RsaReductionOp::MulBase
         };
-        if step.op != expected_op || !bytes_lt(&step.remainder, &witness.modulus) {
+        if step.op != expected_op || !limbs_lt(&step.remainder_limbs.0, &modulus_limbs) {
             return false;
         }
 
         let rhs_residues = if step_idx < 16 { current_residues } else { signature_residues };
         let remainder_residues = Residues2048(step.remainder_residues);
-        if sampled_step_checks[step_idx] && Residues2048::from_bytes(&step.remainder).0 != step.remainder_residues {
+        if sampled_step_checks[step_idx]
+            && Residues2048::from_limbs(&step.remainder_limbs.0).0 != step.remainder_residues
+        {
             return false;
         }
 
@@ -285,10 +346,10 @@ pub fn verify_rsa65537_trusted_advice_witness_pkcs1v15_sha256(
         );
         advance_seeded_weight_state(&mut seeded_weight_state, step_idx);
 
-        encoded_message = step.remainder;
         current_residues = remainder_residues;
     }
 
+    let encoded_message = Bytes2048::from(limbs_to_bytes_be_2048(&witness.steps[16].remainder_limbs.0));
     aggregated_error.iter().all(|&value| value == 0)
         && verify_pkcs1v15_sha256_encoded(encoded_message.as_array(), message_hash)
 }
@@ -298,11 +359,15 @@ struct Residues2048([u32; 4]);
 
 impl Residues2048 {
     fn from_bytes(bytes: &Bytes2048) -> Self {
+        Self::from_limbs(&bytes_be_to_limbs_2048(bytes.as_array()))
+    }
+
+    fn from_limbs(limbs: &[Limb; LIMBS_2048]) -> Self {
         let mut residues = [0u32; 4];
         let mut i = 0usize;
         while i < RSA_CHECK_PRIMES.len() {
             let (prime, complement) = RSA_CHECK_PRIMES[i];
-            residues[i] = bytes_be_mod_prime(bytes.as_array(), prime, complement);
+            residues[i] = limbs_mod_prime(limbs, prime, complement);
             i += 1;
         }
         Self(residues)
@@ -332,21 +397,77 @@ fn accumulate_residue_error(
     }
 }
 
-fn bytes_be_mod_prime(bytes: &[u8; 256], prime: u32, complement: u32) -> u32 {
-    let mut acc = 0u32;
-    let mut chunk_idx = 0usize;
-    while chunk_idx < 64 {
-        let byte_idx = chunk_idx * 4;
-        let limb = u32::from_be_bytes([
-            bytes[byte_idx],
-            bytes[byte_idx + 1],
-            bytes[byte_idx + 2],
-            bytes[byte_idx + 3],
-        ]);
-        acc = reduce_near_u32_prime((acc as u64) * (complement as u64) + (limb as u64), prime, complement);
-        chunk_idx += 1;
+fn limbs_mod_prime(limbs: &[Limb; LIMBS_2048], prime: u32, complement: u32) -> u32 {
+    #[cfg(feature = "rv64")]
+    {
+        let mut acc = 0u32;
+        let mut idx = LIMBS_2048;
+        while idx > 0 {
+            idx -= 1;
+            let limb = limbs[idx];
+            let hi = (limb >> 32) as u32;
+            let lo = limb as u32;
+            acc = reduce_near_u32_prime((acc as u64) * (complement as u64) + (hi as u64), prime, complement);
+            acc = reduce_near_u32_prime((acc as u64) * (complement as u64) + (lo as u64), prime, complement);
+        }
+        acc
     }
-    acc
+    #[cfg(not(feature = "rv64"))]
+    {
+        let mut acc = 0u32;
+        let mut idx = LIMBS_2048;
+        while idx > 0 {
+            idx -= 1;
+            let limb = limbs[idx];
+            acc = reduce_near_u32_prime((acc as u64) * (complement as u64) + (limb as u64), prime, complement);
+        }
+        acc
+    }
+}
+
+fn limbs_lt(lhs: &[Limb; LIMBS_2048], rhs: &[Limb; LIMBS_2048]) -> bool {
+    let mut idx = LIMBS_2048;
+    while idx > 0 {
+        idx -= 1;
+        if lhs[idx] != rhs[idx] {
+            return lhs[idx] < rhs[idx];
+        }
+    }
+    false
+}
+
+fn encode_limbs_le(limbs: &[Limb; LIMBS_2048], out: &mut [u8; 256]) {
+    let mut idx = 0usize;
+    while idx < LIMBS_2048 {
+        #[cfg(feature = "rv64")]
+        {
+            out[idx * 8..(idx + 1) * 8].copy_from_slice(&limbs[idx].to_le_bytes());
+        }
+        #[cfg(not(feature = "rv64"))]
+        {
+            out[idx * 4..(idx + 1) * 4].copy_from_slice(&limbs[idx].to_le_bytes());
+        }
+        idx += 1;
+    }
+}
+
+fn decode_limbs_le(bytes: &[u8; 256]) -> [Limb; LIMBS_2048] {
+    let mut limbs = [0 as Limb; LIMBS_2048];
+    let mut idx = 0usize;
+    while idx < LIMBS_2048 {
+        #[cfg(feature = "rv64")]
+        {
+            let start = idx * 8;
+            limbs[idx] = Limb::from_le_bytes(bytes[start..start + 8].try_into().unwrap());
+        }
+        #[cfg(not(feature = "rv64"))]
+        {
+            let start = idx * 4;
+            limbs[idx] = Limb::from_le_bytes(bytes[start..start + 4].try_into().unwrap());
+        }
+        idx += 1;
+    }
+    limbs
 }
 
 fn reduce_near_u32_prime(value: u64, prime: u32, complement: u32) -> u32 {
@@ -422,17 +543,6 @@ fn neg_mod(value: u32, prime: u32) -> u32 {
     }
 }
 
-fn bytes_lt(lhs: &Bytes2048, rhs: &Bytes2048) -> bool {
-    let mut i = 0usize;
-    while i < 256 {
-        if lhs.0[i] != rhs.0[i] {
-            return lhs.0[i] < rhs.0[i];
-        }
-        i += 1;
-    }
-    false
-}
-
 #[cfg(feature = "host")]
 fn biguint_to_bytes2048(value: &num_bigint::BigUint) -> Bytes2048 {
     let bytes = value.to_bytes_be();
@@ -440,6 +550,11 @@ fn biguint_to_bytes2048(value: &num_bigint::BigUint) -> Bytes2048 {
     let start = 256 - bytes.len();
     out[start..].copy_from_slice(&bytes);
     Bytes2048(out)
+}
+
+#[cfg(feature = "host")]
+fn biguint_to_limbs_2048(value: &num_bigint::BigUint) -> [Limb; LIMBS_2048] {
+    bytes_be_to_limbs_2048(biguint_to_bytes2048(value).as_array())
 }
 
 #[cfg(all(test, feature = "host"))]

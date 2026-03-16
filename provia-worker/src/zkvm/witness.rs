@@ -149,7 +149,7 @@ fn write_sparse_field_target<F: JoltField>(
     write_sparse_target(out, target.with_row(row), value);
 }
 
-#[tracing::instrument(skip_all, name = "r2f_operands_sparse_chunk")]
+#[tracing::instrument(skip_all, name = "r2f_operands_sparse_chunk", level = "trace")]
 fn r2f_operands_sparse_chunk<F, N>(
     io_ctx: &mut IoContextPool<N>,
     shares: &[Rep3RingShare<XlenInt>],
@@ -506,7 +506,10 @@ where
                 let pc_index = cycle.get_pc(&preprocessing.shared.bytecode) as u64;
 
                 #[cfg(not(feature = "rv64"))]
-                let imm_val = if circuit_flags[CircuitFlags::Branch as usize] {
+                let imm_val = if circuit_flags[CircuitFlags::Branch as usize]
+                    || circuit_flags[CircuitFlags::Load as usize]
+                    || circuit_flags[CircuitFlags::Store as usize]
+                {
                     norm.operands.imm as i32 as i128
                 } else {
                     norm.operands.imm as XlenInt as i128

@@ -617,15 +617,14 @@ impl MacroBuilder {
                 #(#set_program_trusted_advice_args;)*
 
                 let mut rng = OsRng;
-                let (bytecode, memory_init, program_io, shares) =
+                let (bytecode, memory_init, program_io, raw_trace_len, shares) =
                     jolt::generate_trace_shares(program, &input_bytes, &untrusted_advice_bytes, &trusted_advice_bytes, &mut rng);
-                let preprocess_trace_len = shares[0].0.len();
                 let proof_bytes =
                     client.delegate(
                         bytecode,
                         memory_init,
                         program_id.to_owned(),
-                        preprocess_trace_len,
+                        raw_trace_len,
                         shares,
                     )?;
                 let proof = <#proof_type>::deserialize_from_bytes(&proof_bytes)

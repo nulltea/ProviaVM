@@ -80,7 +80,7 @@ impl<F: JoltField> Rep3R1CSCycleInputs<F> {
         // immediate-using constraints operate on the low-word bit pattern. For rv64, keep the
         // original i128.
         #[cfg(not(feature = "rv64"))]
-        let imm = if row.flag(CircuitFlags::Branch) {
+        let imm = if row.flag(CircuitFlags::Branch) || row.flag(CircuitFlags::Load) || row.flag(CircuitFlags::Store) {
             row.imm() as i32 as i128
         } else {
             row.imm() as jolt_core::common::constants::XlenInt as i128
@@ -233,7 +233,8 @@ where
                 inner[idx_rd].add_public_assign(F::from_u64(row.rd_addr() as u64) * eq2_val, party_id);
                 {
                     #[cfg(not(feature = "rv64"))]
-                    let imm_val = if row.flag(CircuitFlags::Branch) {
+                    let imm_val =
+                        if row.flag(CircuitFlags::Branch) || row.flag(CircuitFlags::Load) || row.flag(CircuitFlags::Store) {
                         F::from_i128(row.imm() as i32 as i128)
                     } else {
                         F::from_i128(row.imm() as jolt_core::common::constants::XlenInt as i128)

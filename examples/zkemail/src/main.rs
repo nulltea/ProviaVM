@@ -336,6 +336,9 @@ fn prove_and_verify_dkim(
         commit_trusted_advice_verify_dkim(TrustedAdvice::from(trusted_advice_witness), &prover_preprocessing);
     let trusted_commitment = trusted_commitment.ok_or_else(|| eyre::eyre!("missing trusted advice commitment"))?;
     dkim_input.rsa_challenge_seed = trusted_advice_witness_seed_from_proof_commitment(&trusted_commitment)?;
+    let raw_trace_len = analyze_verify_dkim(TrustedAdvice::from(trusted_advice_witness), dkim_input.clone()).trace_len();
+    let padded_trace_len = raw_trace_len.next_power_of_two();
+    info!(raw_trace_len, padded_trace_len, "zkemail guest trace lengths");
 
     let worker_addrs = parse_worker_addresses(&args.config_path)?;
     let delegate = build_delegate_verify_dkim(compile_verify_dkim(target_dir));
@@ -351,7 +354,7 @@ fn prove_and_verify_dkim(
     let trusted_advice_seed = dkim_input.rsa_challenge_seed;
     let (proof_output, proof, program_io) =
         delegate(&mut client, TrustedAdvice::from(trusted_advice_witness), dkim_input, program_id)?;
-    info!(trace_length = proof.trace_length, "proof received");
+    info!(trace_length = proof.trace_length, raw_trace_len, padded_trace_len, "proof received");
 
     let proof_commitment = proof
         .trusted_advice_commitment
