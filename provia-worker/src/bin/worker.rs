@@ -80,7 +80,8 @@ struct Args {
 ///
 /// Contains the worker's secret share plus public data needed for proving.
 /// NOTE: No plaintext advice or io_device — only shares and public metadata.
-/// Workers compute `padded_len` (= trace.len()) and `ram_k` locally.
+/// Workers receive the raw trace length used for preprocessing and compute
+/// `padded_len` (= trace.len()) and `ram_k` locally.
 #[derive(Serialize, Deserialize)]
 struct WorkerPayload {
     trace: Vec<Rep3Cycle>,
@@ -183,7 +184,7 @@ fn prove_loop(
 
         // Compute ram_k from the shared trace (RAM addresses are public).
         let ram_k = compute_ram_k(&trace, &preprocessing.shared);
-        info!(padded_len, ram_k, trace_len = trace.len(), "received payload from user");
+        info!(padded_len, ram_k, trace_len = preprocess_trace_len, "received payload from user");
 
         let proof_request = ProofRequest {
             bytecode,

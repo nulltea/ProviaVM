@@ -255,6 +255,7 @@ impl MacroBuilder {
         let guest_name = self.get_guest_name();
         let imports = self.make_imports();
         let set_std = self.make_set_std();
+        let set_guest_features = self.make_set_guest_features();
 
         let fn_name = self.get_func_name();
         let fn_name_str = fn_name.to_string();
@@ -284,6 +285,7 @@ impl MacroBuilder {
 
                 let mut program = Program::new(#guest_name);
                 program.set_func(#fn_name_str);
+                #set_guest_features
                 #set_std
                 #set_mem_size
 
@@ -304,6 +306,7 @@ impl MacroBuilder {
         let guest_name = self.get_guest_name();
         let set_mem_size = self.make_set_linker_parameters();
         let set_std = self.make_set_std();
+        let set_guest_features = self.make_set_guest_features();
 
         let fn_name = self.get_func_name();
         let fn_name_str = fn_name.to_string();
@@ -333,6 +336,7 @@ impl MacroBuilder {
                 let mut program = Program::new(#guest_name);
                 let path = std::path::PathBuf::from(target_dir);
                 program.set_func(#fn_name_str);
+                #set_guest_features
                 #set_std
                 #set_mem_size
 
@@ -354,6 +358,7 @@ impl MacroBuilder {
         let guest_name = self.get_guest_name();
         let set_mem_size = self.make_set_linker_parameters();
         let set_std = self.make_set_std();
+        let set_guest_features = self.make_set_guest_features();
 
         let channel = if attributes.nightly {
             quote! { "nightly" }
@@ -370,6 +375,7 @@ impl MacroBuilder {
 
                 let mut program = Program::new(#guest_name);
                 program.set_func(#fn_name_str);
+                #set_guest_features
                 #set_std
                 #set_mem_size
                 program.build_with_channel(target_dir, #channel);
@@ -531,22 +537,27 @@ impl MacroBuilder {
                 #(#set_trusted_advice_args;)*
 
                 let max_trusted_advice_size = preprocessing.shared.memory_layout.max_trusted_advice_size;
+                let word_size = jolt::RAM_WORD_SIZE as usize;
 
-                let mut initial_memory_state = vec![0u64; (max_trusted_advice_size as usize) / 8];
+                let mut initial_memory_state = vec![0u64; (max_trusted_advice_size as usize) / word_size];
 
                 let mut index = 1;
-                for chunk in trusted_advice_bytes.chunks(8) {
+                for chunk in trusted_advice_bytes.chunks(word_size) {
                     let mut word = [0u8; 8];
                     for (i, byte) in chunk.iter().enumerate() {
                         word[i] = *byte;
                     }
-                    let word = u64::from_le_bytes(word);
+                    let word = if word_size == 8 {
+                        u64::from_le_bytes(word)
+                    } else {
+                        u32::from_le_bytes(word[..4].try_into().unwrap()) as u64
+                    };
                     initial_memory_state[index] = word;
                     index += 1;
                 }
 
                 // Initialize Dory globals with specified parameters
-                let _guard = jolt::DoryGlobals::initialize(1, max_trusted_advice_size as usize / 8);
+                let _guard = jolt::DoryGlobals::initialize(1, max_trusted_advice_size as usize / word_size);
 
                 let poly = MultilinearPolynomial::<jolt::F>::from(initial_memory_state);
                 let (commitment, hint) = jolt::PCS::commit(&poly, &preprocessing.generators);
@@ -606,15 +617,14 @@ impl MacroBuilder {
                 #(#set_program_trusted_advice_args;)*
 
                 let mut rng = OsRng;
-                let (bytecode, memory_init, program_io, shares) =
+                let (bytecode, memory_init, program_io, raw_trace_len, shares) =
                     jolt::generate_trace_shares(program, &input_bytes, &untrusted_advice_bytes, &trusted_advice_bytes, &mut rng);
-                let preprocess_trace_len = shares[0].0.len();
                 let proof_bytes =
                     client.delegate(
                         bytecode,
                         memory_init,
                         program_id.to_owned(),
-                        preprocess_trace_len,
+                        raw_trace_len,
                         shares,
                     )?;
                 let proof = <#proof_type>::deserialize_from_bytes(&proof_bytes)
@@ -959,6 +969,13 @@ impl MacroBuilder {
 
     fn get_func_name(&self) -> &Ident {
         &self.func.sig.ident
+    }
+
+    fn make_set_guest_features(&self) -> TokenStream2 {
+        quote! {
+            #[cfg(feature = "rv64")]
+            program.add_feature("rv64");
+        }
     }
 
     fn get_guest_name(&self) -> String {

@@ -23,6 +23,7 @@ impl Program {
         Self {
             guest: guest.to_string(),
             func: None,
+            features: Vec::new(),
             memory_size: DEFAULT_MEMORY_SIZE,
             stack_size: DEFAULT_STACK_SIZE,
             max_input_size: DEFAULT_MAX_INPUT_SIZE,
@@ -40,6 +41,13 @@ impl Program {
 
     pub fn set_func(&mut self, func: &str) {
         self.func = Some(func.to_string())
+    }
+
+    pub fn add_feature(&mut self, feature: &str) {
+        if !self.features.iter().any(|existing| existing == feature) {
+            self.features.push(feature.to_string());
+            self.elf = None;
+        }
     }
 
     pub fn set_memory_config(&mut self, memory_config: MemoryConfig) {
@@ -82,18 +90,12 @@ impl Program {
     #[tracing::instrument(skip_all, name = "Program::build")]
     pub fn build_with_channel(&mut self, target_dir: &str, _channel: &str) {
         if self.elf.is_none() {
-            // Check if a pre-built ELF already exists at the expected path
             #[cfg(feature = "rv64")]
             let target_triple = if self.std { "riscv64imac-jolt-zkvm-elf" } else { "riscv64imac-unknown-none-elf" };
             #[cfg(not(feature = "rv64"))]
             let target_triple = "riscv32im-unknown-none-elf";
-            let target = format!("{}/{}-{}", target_dir, self.guest, self.func.as_ref().unwrap_or(&"".to_string()));
-            let elf_path = format!("{}/{}/release/{}", target, target_triple, self.guest);
-            if std::path::Path::new(&elf_path).exists() {
-                info!("Using pre-built guest binary: {elf_path}");
-                self.elf = Some(PathBuf::from_str(&elf_path).unwrap());
-                return;
-            }
+            self.preflight_guest_build(target_triple);
+            let target = self.build_target_dir(target_dir);
 
             self.save_linker();
 
@@ -137,6 +139,7 @@ impl Program {
             let target_triple = if self.std { "riscv64imac-jolt-zkvm-elf" } else { "riscv64imac-unknown-none-elf" };
             #[cfg(not(feature = "rv64"))]
             let target_triple = "riscv32im-unknown-none-elf";
+            self.preflight_guest_build(target_triple);
 
             let mut envs = vec![("CARGO_ENCODED_RUSTFLAGS", rust_flags.join("\x1f"))];
 
@@ -146,7 +149,7 @@ impl Program {
                 envs.push(("JOLT_FUNC_NAME", func.to_string()));
             }
 
-            let target = format!("{}/{}-{}", target_dir, self.guest, self.func.as_ref().unwrap_or(&"".to_string()));
+            let target = self.build_target_dir(target_dir);
 
             let cc_env_var = format!("CC_{target_triple}");
             let cc_value = std::env::var(&cc_env_var).unwrap_or_else(|_| {
@@ -181,21 +184,30 @@ impl Program {
                 .unwrap_or_else(|| panic!("could not find Cargo.toml for guest '{}'", self.guest));
             let manifest_str = manifest_path.to_string_lossy().to_string();
 
-            let args = [
-                "build",
-                "--release",
-                "--manifest-path",
-                &manifest_str,
-                "--target-dir",
-                &target,
-                "--target",
-                target_triple,
+            let mut args = vec![
+                "build".to_string(),
+                "--release".to_string(),
+                "--manifest-path".to_string(),
+                manifest_str.clone(),
+                "--target-dir".to_string(),
+                target.clone(),
+                "--target".to_string(),
+                target_triple.to_string(),
             ];
+            if !self.features.is_empty() {
+                args.push("--features".to_string());
+                args.push(self.features.join(","));
+            }
+            let arg_refs: Vec<&str> = args.iter().map(|arg| arg.as_str()).collect();
 
-            let cmd_line = compose_command_line("cargo", &envs, &args);
+            let cmd_line = compose_command_line("cargo", &envs, &arg_refs);
             info!("\n{cmd_line}");
 
-            let output = Command::new("cargo").envs(envs.clone()).args(args).output().expect("failed to build guest");
+            let output = Command::new("cargo")
+                .envs(envs.clone())
+                .args(arg_refs.iter().copied())
+                .output()
+                .expect("failed to build guest");
 
             if !output.status.success() {
                 io::stderr().write_all(&output.stderr).unwrap();
@@ -214,6 +226,76 @@ impl Program {
             } else {
                 info!("Built guest binary: {elf_path}");
             }
+        }
+    }
+
+    fn build_target_dir(&self, target_dir: &str) -> String {
+        let func = self.func.as_deref().unwrap_or("");
+        if self.features.is_empty() {
+            format!("{}/{}-{}", target_dir, self.guest, func)
+        } else {
+            let feature_suffix = self.features.join("_");
+            format!("{}/{}-{}-{}", target_dir, self.guest, func, feature_suffix)
+        }
+    }
+
+    fn preflight_guest_build(&self, target_triple: &str) {
+        let has_rv64 = self.features.iter().any(|feature| feature == "rv64");
+        let feature_list = if self.features.is_empty() {
+            "[]".to_string()
+        } else {
+            format!("[{}]", self.features.join(","))
+        };
+
+        #[cfg(feature = "rv64")]
+        let host_rv64 = true;
+        #[cfg(not(feature = "rv64"))]
+        let host_rv64 = false;
+
+        if has_rv64 != host_rv64 {
+            panic!(
+                "guest build feature mismatch for '{}': host rv64={}, guest features={}, target={}",
+                self.guest,
+                host_rv64,
+                feature_list,
+                target_triple,
+            );
+        }
+
+        if has_rv64 && !target_triple.starts_with("riscv64") {
+            panic!(
+                "guest build target mismatch for '{}': guest features={}, target={}",
+                self.guest,
+                feature_list,
+                target_triple,
+            );
+        }
+
+        if !has_rv64 && !target_triple.starts_with("riscv32") {
+            panic!(
+                "guest build target mismatch for '{}': guest features={}, target={}",
+                self.guest,
+                feature_list,
+                target_triple,
+            );
+        }
+
+        if self.std && !target_triple.ends_with("jolt-zkvm-elf") {
+            panic!(
+                "guest std/target mismatch for '{}': guest features={}, target={}",
+                self.guest,
+                feature_list,
+                target_triple,
+            );
+        }
+
+        if !self.std && target_triple.ends_with("jolt-zkvm-elf") {
+            panic!(
+                "guest std/target mismatch for '{}': guest features={}, target={}",
+                self.guest,
+                feature_list,
+                target_triple,
+            );
         }
     }
 

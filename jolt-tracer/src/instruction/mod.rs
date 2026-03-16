@@ -534,6 +534,28 @@ macro_rules! define_rv32im_enums {
 
         impl Instruction {
             pub fn trace(&self, cpu: &mut Cpu, trace: Option<&mut Vec<Cycle>>) {
+                let normalized = self.normalize();
+                // Rewrite instructions with rd=x0 via inline_sequence so the
+                // constraint system never sees rd=x0.
+                if normalized.operands.rd == 0 {
+                    let inline_sequence = self.inline_sequence(&cpu.vr_allocator, cpu.xlen);
+                    let mut trace = trace;
+                    for instr in inline_sequence {
+                        instr.trace_raw(cpu, trace.as_deref_mut());
+                    }
+                    return;
+                }
+                match self {
+                    Instruction::NoOp => panic!("Unsupported instruction: {:?}", self),
+                    Instruction::UNIMPL => panic!("Unsupported instruction: {:?}", self),
+                    $(
+                        Instruction::$instr(instr) => instr.trace(cpu, trace),
+                    )*
+                    Instruction::INLINE(instr) => instr.trace(cpu, trace),
+                }
+            }
+
+            fn trace_raw(&self, cpu: &mut Cpu, trace: Option<&mut Vec<Cycle>>) {
                 match self {
                     Instruction::NoOp => panic!("Unsupported instruction: {:?}", self),
                     Instruction::UNIMPL => panic!("Unsupported instruction: {:?}", self),

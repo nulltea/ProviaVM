@@ -7,6 +7,7 @@ edition = "2021"
 
 [features]
 guest = []
+rv64 = ["jolt-inlines-rsa/rv64", "jolt-inlines-sha2/rv64", "zkemail-core/rv64"]
 
 [dependencies]
 jolt = { package = "provia-jolt-sdk", path = "../../../provia-jolt-sdk" }

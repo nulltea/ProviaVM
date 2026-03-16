@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+pub use jolt_inlines_rsa::{Bytes2048, Rsa65537TrustedAdviceWitness2048, RsaReductionOp, RsaReductionStep2048};
 use serde::{Deserialize, Serialize};
 
 /// Pre-parsed DKIM verification input.
@@ -16,6 +17,8 @@ pub struct DKIMInput {
     pub public_key_der: Vec<u8>,
     /// Sender domain as bytes (e.g., b"google.com")
     pub from_domain: Vec<u8>,
+    /// Transcript-bound seed for RSA witness compression checks.
+    pub rsa_challenge_seed: [u8; 32],
 }
 
 /// Output committed by the guest.

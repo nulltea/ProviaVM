@@ -1310,8 +1310,32 @@ impl JoltDAG {
         verifier_setup: &PCS::VerifierSetup,
         transcript: &mut ProofTranscript,
     ) -> Result<(), anyhow::Error> {
+        use crate::poly::opening_proof::{OpeningId, OpeningPoint, SumcheckId, BIG_ENDIAN};
+        use crate::utils::math::Math;
+        use crate::zkvm::witness::VirtualPolynomial;
+
         let trusted_advice_commitment = state_manager.trusted_advice_commitment.as_ref().unwrap();
         let accumulator = state_manager.get_verifier_accumulator();
+
+        let ws = crate::common::constants::RAM_WORD_SIZE as usize;
+        let max_size = state_manager.program_io.memory_layout.max_trusted_advice_size as usize / ws;
+        let log_advice_size = max_size.next_power_of_two().log_2();
+        let total_memory_vars = state_manager.ram_K.log_2();
+        let (r_val_point, _) = accumulator
+            .borrow()
+            .get_virtual_polynomial_opening(VirtualPolynomial::RamVal, SumcheckId::RamReadWriteChecking);
+        let r_address = &r_val_point.r[..total_memory_vars];
+        let high_bits = total_memory_vars - log_advice_size;
+        let advice_opening_point = OpeningPoint::<BIG_ENDIAN, F>::new(r_address[high_bits..].to_vec());
+
+        {
+            let mut acc = accumulator.borrow_mut();
+            if let Some((point, _)) = acc.openings.get_mut(&OpeningId::TrustedAdvice) {
+                *point = advice_opening_point;
+            } else {
+                acc.openings.insert(OpeningId::TrustedAdvice, (advice_opening_point, F::zero()));
+            }
+        }
 
         let (point, eval) = accumulator.borrow().get_trusted_advice_opening().unwrap();
         let proof = match state_manager.proofs.borrow().get(&ProofKeys::TrustedAdviceProof) {

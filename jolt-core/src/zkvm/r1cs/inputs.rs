@@ -139,10 +139,13 @@ impl R1CSCycleInputs {
             if let Some(nc) = next_cycle { nc.instruction().normalize().address as u64 } else { 0u64 };
 
         // Immediate — for rv32, most instructions use the low-word bit pattern as-is, but branch
-        // target updates need the signed branch offset. For rv64, the normalized immediate is
-        // already the correct full-width signed value.
+        // targets and load/store address updates need the signed offset. For rv64, the normalized
+        // immediate is already the correct full-width signed value.
         #[cfg(not(feature = "rv64"))]
-        let imm_i128 = if flags_view[CircuitFlags::Branch] {
+        let imm_i128 = if flags_view[CircuitFlags::Branch]
+            || flags_view[CircuitFlags::Load]
+            || flags_view[CircuitFlags::Store]
+        {
             norm.operands.imm as i32 as i128
         } else {
             norm.operands.imm as XlenInt as i128

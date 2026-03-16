@@ -2,9 +2,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use ::guest::{
-    build_delegate_verify_dkim, build_verifier_verify_dkim, compile_verify_dkim, memory_config_verify_dkim, verify_dkim,
+    analyze_verify_dkim, build_delegate_verify_dkim, commit_trusted_advice_verify_dkim, compile_verify_dkim,
+    memory_config_verify_dkim, preprocess_prover_verify_dkim, verify_dkim,
 };
-use ark_bn254::Fr;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use cfdkim::{dns::from_tokio_resolver, public_key::retrieve_public_key};
@@ -20,11 +20,22 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
 use trust_dns_resolver::TokioAsyncResolver;
-use zkemail_core::{DKIMInput, DKIMOutput};
+use zkemail_core::{DKIMInput, DKIMOutput, Rsa65537TrustedAdviceWitness2048};
 
 use provia_jolt_sdk::*;
+use jolt_inlines_rsa::{
+    build_rsa65537_trusted_advice_witness,
+    mont_mul_2048_trace_len,
+    mont_square_2048_trace_len,
+    modpow_65537_trace_len,
+    trusted_advice_witness_seed_from_commitment,
+    trusted_advice_witness_seed_from_commitment_bytes,
+    validate_rsa65537_trusted_advice_witness,
+    Bytes2048,
+};
+use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
+use tokio::time::{timeout, Duration};
 
-type F = Fr;
 type PCS = provia_jolt_sdk::PCS;
 
 #[derive(Deserialize)]
@@ -45,6 +56,10 @@ struct Args {
     /// Expected sender domain (e.g., "google.com")
     #[clap(long)]
     from_domain: String,
+
+    /// Print RSA kernel and full guest trace lengths, then exit.
+    #[clap(long)]
+    profile_rsa: bool,
 }
 
 fn init_tracing() {
@@ -135,7 +150,50 @@ fn remove_b_value(header_value: &str) -> String {
 
 /// Prepare DKIM input by parsing the email, looking up DNS, and extracting
 /// the canonicalized signed headers + RSA public key + signature.
-async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Result<DKIMInput> {
+fn build_trusted_advice_witness(
+    public_key_der: &[u8],
+    signature: &[u8],
+) -> eyre::Result<Rsa65537TrustedAdviceWitness2048> {
+    eyre::ensure!(signature.len() == 256, "signature must be 256 bytes");
+    let modulus = parse_pkcs1_modulus(public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
+    Ok(build_rsa65537_trusted_advice_witness(
+        &modulus,
+        &Bytes2048(signature.try_into().context("signature length")?),
+    ))
+}
+
+fn trusted_advice_witness_seed_from_proof_commitment(
+    commitment: &<PCS as CommitmentScheme>::Commitment,
+) -> eyre::Result<[u8; 32]> {
+    trusted_advice_witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
+}
+
+fn validate_trusted_advice_witness(
+    input: &DKIMInput,
+    witness: &Rsa65537TrustedAdviceWitness2048,
+) -> eyre::Result<()> {
+    let modulus = parse_pkcs1_modulus(&input.public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
+    let signature = Bytes2048(input.signature.as_slice().try_into().context("signature length")?);
+    eyre::ensure!(
+        validate_rsa65537_trusted_advice_witness(&modulus, &signature, witness),
+        "invalid RSA witness relation"
+    );
+    Ok(())
+}
+
+fn print_profile_summary(input: DKIMInput, witness: Rsa65537TrustedAdviceWitness2048) {
+    let summary = analyze_verify_dkim(TrustedAdvice::from(witness), input);
+    println!("arch: {}", if cfg!(feature = "rv64") { "rv64" } else { "rv32" });
+    println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
+    println!("mont_square_2048 trace length: {}", mont_square_2048_trace_len());
+    println!("modpow_65537 trace length: {}", modpow_65537_trace_len());
+    println!("verify_dkim trace length: {}", summary.trace_len());
+}
+
+async fn prepare_dkim_input(
+    email_path: &PathBuf,
+    from_domain: &str,
+) -> eyre::Result<(DKIMInput, Rsa65537TrustedAdviceWitness2048)> {
     let logger = Logger::root(Discard, o!());
     let raw_email = std::fs::read(email_path).context("reading email file")?;
     let parsed = mailparse::parse_mail(&raw_email).map_err(|e| eyre::eyre!("parse email: {}", e))?;
@@ -175,14 +233,23 @@ async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Re
             Some(s) => s,
             None => continue,
         };
-        match retrieve_public_key(&logger, cfdkim_resolver.clone(), from_domain.to_string(), selector).await {
-            Ok(pk) => {
+        match timeout(
+            Duration::from_secs(10),
+            retrieve_public_key(&logger, cfdkim_resolver.clone(), from_domain.to_string(), selector),
+        )
+        .await
+        {
+            Ok(Ok(pk)) => {
                 found_public_key_der = Some(pk.to_vec() as Vec<u8>);
                 found_header_value = Some(header_value);
                 break;
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 info!(error = %e, "retrieve_public_key failed");
+                continue;
+            }
+            Err(_) => {
+                info!("retrieve_public_key timed out");
                 continue;
             }
         }
@@ -210,69 +277,128 @@ async fn prepare_dkim_input(email_path: &PathBuf, from_domain: &str) -> eyre::Re
         "prepared DKIM input"
     );
 
-    Ok(DKIMInput { signed_headers, signature, public_key_der, from_domain: from_domain.as_bytes().to_vec() })
+    let input = DKIMInput {
+        signed_headers,
+        signature,
+        public_key_der,
+        from_domain: from_domain.as_bytes().to_vec(),
+        rsa_challenge_seed: [0u8; 32],
+    };
+    let witness = build_trusted_advice_witness(&input.public_key_der, &input.signature)?;
+    validate_trusted_advice_witness(&input, &witness)?;
+
+    Ok((
+        input,
+        witness,
+    ))
+}
+
+fn trusted_advice_witness_seed_for_profile(
+    witness: &Rsa65537TrustedAdviceWitness2048,
+) -> eyre::Result<[u8; 32]> {
+    let witness_bytes = provia_jolt_sdk::postcard::to_stdvec(&TrustedAdvice::from(*witness))
+        .context("serializing trusted advice witness")?;
+    Ok(trusted_advice_witness_seed_from_commitment_bytes(&witness_bytes))
+}
+
+fn parse_worker_addresses(config_path: &PathBuf) -> eyre::Result<[SocketAddr; 3]> {
+    let config: DelegatorConfig =
+        toml::from_str(&std::fs::read_to_string(config_path).context("reading config")?).context("parsing config")?;
+    let worker_addrs: Vec<SocketAddr> = config
+        .workers
+        .iter()
+        .map(|entry| entry.trim().parse::<SocketAddr>())
+        .collect::<Result<_, _>>()
+        .context("parsing worker addresses")?;
+    worker_addrs
+        .try_into()
+        .map_err(|entries: Vec<_>| eyre::eyre!("expected 3 worker addresses, got {}", entries.len()))
+}
+
+fn run_profile_mode(
+    mut dkim_input: DKIMInput,
+    trusted_advice_witness: Rsa65537TrustedAdviceWitness2048,
+) -> eyre::Result<()> {
+    dkim_input.rsa_challenge_seed = trusted_advice_witness_seed_for_profile(&trusted_advice_witness)?;
+    print_profile_summary(dkim_input, trusted_advice_witness);
+    Ok(())
+}
+
+fn prove_and_verify_dkim(
+    args: &Args,
+    mut dkim_input: DKIMInput,
+    trusted_advice_witness: Rsa65537TrustedAdviceWitness2048,
+) -> eyre::Result<()> {
+    let target_dir = "/tmp/jolt-guest-targets";
+    let mut preprocessing_program = compile_verify_dkim(target_dir);
+    let prover_preprocessing = preprocess_prover_verify_dkim(&mut preprocessing_program);
+    let (trusted_commitment, _trusted_hint) =
+        commit_trusted_advice_verify_dkim(TrustedAdvice::from(trusted_advice_witness), &prover_preprocessing);
+    let trusted_commitment = trusted_commitment.ok_or_else(|| eyre::eyre!("missing trusted advice commitment"))?;
+    dkim_input.rsa_challenge_seed = trusted_advice_witness_seed_from_proof_commitment(&trusted_commitment)?;
+    let raw_trace_len = analyze_verify_dkim(TrustedAdvice::from(trusted_advice_witness), dkim_input.clone()).trace_len();
+    let padded_trace_len = raw_trace_len.next_power_of_two();
+    info!(raw_trace_len, padded_trace_len, "zkemail guest trace lengths");
+
+    let worker_addrs = parse_worker_addresses(&args.config_path)?;
+    let delegate = build_delegate_verify_dkim(compile_verify_dkim(target_dir));
+    let native_output: DKIMOutput = verify_dkim(TrustedAdvice::from(trusted_advice_witness), dkim_input.clone());
+
+    info!(?native_output, "native DKIM verification result");
+    info!(?worker_addrs, "connecting to workers");
+    let mut client = Client::connect(worker_addrs)?;
+    info!("connected to all 3 workers");
+
+    info!("delegating proof...");
+    let program_id = "zkemail-verify";
+    let trusted_advice_seed = dkim_input.rsa_challenge_seed;
+    let (proof_output, proof, program_io) =
+        delegate(&mut client, TrustedAdvice::from(trusted_advice_witness), dkim_input, program_id)?;
+    info!(trace_length = proof.trace_length, raw_trace_len, padded_trace_len, "proof received");
+
+    let proof_commitment = proof
+        .trusted_advice_commitment
+        .as_ref()
+        .ok_or_else(|| eyre::eyre!("proof missing trusted advice commitment"))?;
+    let proof_seed = trusted_advice_witness_seed_from_proof_commitment(proof_commitment)?;
+    if proof_seed != trusted_advice_seed {
+        return Err(eyre::eyre!("RSA challenge seed mismatch for trusted advice commitment"));
+    }
+
+    let (bytecode, memory_init, program_size) = preprocessing_program.decode();
+    let mut memory_config = memory_config_verify_dkim();
+    memory_config.program_size = Some(program_size);
+    let memory_layout = MemoryLayout::new(&memory_config);
+    let verifier_preprocessing = JoltVerifierPreprocessing::from(&JoltRVArch::prover_preprocess(
+        bytecode,
+        memory_layout,
+        memory_init,
+        proof.trace_length,
+    ));
+
+    info!("verifying proof...");
+    if JoltRVArch::verify(&verifier_preprocessing, proof, program_io, None, None).is_err() {
+        return Err(eyre::eyre!("proof verification failed"));
+    }
+    if proof_output != native_output {
+        return Err(eyre::eyre!("output mismatch with native execution"));
+    }
+
+    info!(verified = proof_output.verified, "proof verified successfully!");
+    Ok(())
 }
 
 fn main() -> eyre::Result<()> {
     init_tracing();
 
     let args = Args::parse();
-    let config: DelegatorConfig =
-        toml::from_str(&std::fs::read_to_string(&args.config_path).context("reading config")?)
-            .context("parsing config")?;
 
-    // Parse worker addresses
-    let addrs: Vec<SocketAddr> = config
-        .workers
-        .iter()
-        .map(|s| s.trim().parse::<SocketAddr>())
-        .collect::<Result<_, _>>()
-        .context("parsing worker addresses")?;
-    let worker_addrs: [SocketAddr; 3] =
-        addrs.try_into().map_err(|v: Vec<_>| eyre::eyre!("expected 3 worker addresses, got {}", v.len()))?;
-
-    // Prepare DKIM input (async DNS lookup)
     let rt = tokio::runtime::Runtime::new()?;
-    let dkim_input = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
+    let (dkim_input, trusted_advice_witness) = rt.block_on(prepare_dkim_input(&args.email_path, &args.from_domain))?;
 
-    // Compile guest program (before connecting so failures don't drop worker connections)
-    let target_dir = "/tmp/jolt-guest-targets";
-    let mut preprocessing_program = compile_verify_dkim(target_dir);
-    let delegate = build_delegate_verify_dkim(compile_verify_dkim(target_dir));
-
-    // Native execution
-    let native_output: DKIMOutput = verify_dkim(dkim_input.clone());
-    info!(?native_output, "native DKIM verification result");
-
-    // Connect to workers
-    info!(?worker_addrs, "connecting to workers");
-    let mut client = Client::connect(worker_addrs)?;
-    info!("connected to all 3 workers");
-
-    // Delegate proof to workers
-    info!("delegating proof...");
-    let program_id = "zkemail-verify";
-    let (output, proof, program_io) = delegate(&mut client, dkim_input, program_id)?;
-    info!(trace_length = proof.trace_length, "proof received");
-
-    // Verify the proof
-    let (bytecode, memory_init, program_size) = preprocessing_program.decode();
-    let mut memory_config = memory_config_verify_dkim();
-    memory_config.program_size = Some(program_size);
-    let memory_layout = MemoryLayout::new(&memory_config);
-    let prover_preprocessing: JoltProverPreprocessing<F, PCS> =
-        JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, proof.trace_length);
-    let verifier = build_verifier_verify_dkim(JoltVerifierPreprocessing::from(&prover_preprocessing));
-    info!("verifying proof...");
-    let is_valid = verifier(output.clone(), program_io.panic, proof);
-
-    if !is_valid {
-        return Err(eyre::eyre!("proof verification failed"));
-    }
-    if output != native_output {
-        return Err(eyre::eyre!("output mismatch with native execution"));
+    if args.profile_rsa {
+        return run_profile_mode(dkim_input, trusted_advice_witness);
     }
 
-    info!(verified = output.verified, "proof verified successfully!");
-    Ok(())
+    prove_and_verify_dkim(&args, dkim_input, trusted_advice_witness)
 }

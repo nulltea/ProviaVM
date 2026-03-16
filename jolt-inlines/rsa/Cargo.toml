@@ -7,13 +7,23 @@ license = "MIT"
 
 [features]
 default = []
-host = ["dep:ctor", "dep:tracer", "dep:tracing"]
-rv64 = ["tracer/rv64"]
+host = [
+    "dep:ctor",
+    "dep:tracer",
+    "dep:tracing",
+    "dep:ark-serialize",
+    "dep:num-bigint",
+]
+rv64 = ["tracer?/rv64"]
 
 [dependencies]
 ctor = { version = "0.2", optional = true }
 tracer = { workspace = true, optional = true, features = ["std"] }
 tracing = { workspace = true, optional = true }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+sha2 = { version = "0.10", default-features = false }
+ark-serialize = { workspace = true, optional = true, default-features = false }
+num-bigint = { workspace = true, optional = true }
 
 [dev-dependencies]
 tracer = { workspace = true, features = ["std", "test-utils"] }
@@ -23,3 +33,5 @@ num-traits = "0.2"
 num-integer = "0.1"
 rsa = { version = "=0.9.6" }
 sha2 = { version = "0.10", features = ["oid"] }
+rand_chacha.workspace = true
+postcard = { version = "1", features = ["alloc"] }

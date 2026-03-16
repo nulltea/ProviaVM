@@ -24,6 +24,7 @@ pub struct ProverStateWorker<'a, F: JoltField, PCS: CommitmentScheme<Field = F>>
     pub untrusted_advice_polynomial: Option<Rep3MultilinearPolynomial<F>>,
     pub untrusted_advice_hint: Option<MaybeShared<PCS::OpeningProofHint>>,
     pub trusted_advice_polynomial: Option<Rep3MultilinearPolynomial<F>>,
+    pub trusted_advice_hint: Option<MaybeShared<PCS::OpeningProofHint>>,
     /// Field-domain per-cycle cache for R1CS virtual inputs.
     pub cycle_witness: Rep3CycleWitnesses<F>,
 }
@@ -32,6 +33,7 @@ pub struct StateManagerWorker<'a, F: JoltField, PCS: CommitmentScheme<Field = F>
     pub party_id: PartyID,
     pub commitments: Vec<PCS::Commitment>,
     pub untrusted_advice_commitment: Option<MaybeShared<PCS::Commitment>>,
+    pub trusted_advice_commitment: Option<MaybeShared<PCS::Commitment>>,
     pub ram_K: usize,
     pub twist_sumcheck_switch_index: usize,
     pub program_io: Rep3ProgramIOInput,
@@ -61,6 +63,7 @@ where
             party_id,
             commitments: vec![],
             untrusted_advice_commitment: None,
+            trusted_advice_commitment: None,
             ram_K,
             twist_sumcheck_switch_index,
             program_io,
@@ -71,6 +74,7 @@ where
                 untrusted_advice_polynomial: None,
                 untrusted_advice_hint: None,
                 trusted_advice_polynomial: None,
+                trusted_advice_hint: None,
                 cycle_witness: Rep3CycleWitnesses::default(),
             },
             accumulator: Rep3OpeningAccumulatorWorker::new(party_id),

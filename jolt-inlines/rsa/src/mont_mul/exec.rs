@@ -12,8 +12,7 @@ const LIMB_BITS: u32 = (core::mem::size_of::<Limb>() * 8) as u32;
 /// Montgomery multiplication: z = x * y * R^{-1} mod m
 /// where R = 2^(LIMB_BITS * LIMBS_2048).
 ///
-/// Uses the SOS (Separated Operand Scanning) method from
-/// Gueron, "Efficient Software Implementations of Modular Exponentiation".
+/// Uses a CIOS-style Montgomery reduction with an `(n + 2)` limb workspace.
 pub fn montgomery_mul(
     z: &mut [Limb; LIMBS_2048],
     x: &[Limb; LIMBS_2048],
@@ -22,49 +21,70 @@ pub fn montgomery_mul(
     k: Limb,
 ) {
     let n = LIMBS_2048;
-
-    // Working buffer: 2n limbs
-    let mut zz = [0 as Limb; LIMBS_2048 * 2];
-    let mut c: Limb = 0;
+    let mut t = [0 as Limb; LIMBS_2048 + 2];
 
     for i in 0..n {
-        // Pass 1: zz[i..n+i] += x[0..n] * y[i]
-        let c2 = add_mul_vvw(&mut zz[i..n + i], x, y[i]);
+        let mut carry = 0 as Limb;
+        for j in 0..n {
+            let product = (x[j] as DoubleLimb) * (y[i] as DoubleLimb)
+                + (t[j] as DoubleLimb)
+                + (carry as DoubleLimb);
+            t[j] = product as Limb;
+            carry = (product >> LIMB_BITS) as Limb;
+        }
 
-        // Montgomery reduction factor
-        let t = zz[i].wrapping_mul(k);
+        let acc = (t[n] as DoubleLimb) + (carry as DoubleLimb);
+        t[n] = acc as Limb;
+        t[n + 1] = t[n + 1].wrapping_add((acc >> LIMB_BITS) as Limb);
 
-        // Pass 2: zz[i..n+i] += m[0..n] * t
-        let c3 = add_mul_vvw(&mut zz[i..n + i], m, t);
+        let u = t[0].wrapping_mul(k);
+        carry = 0;
+        for j in 0..n {
+            let product = (u as DoubleLimb) * (m[j] as DoubleLimb)
+                + (t[j] as DoubleLimb)
+                + (carry as DoubleLimb);
+            if j > 0 {
+                t[j - 1] = product as Limb;
+            }
+            carry = (product >> LIMB_BITS) as Limb;
+        }
 
-        // Accumulate carries
-        let cx = c.wrapping_add(c2);
-        let cy = cx.wrapping_add(c3);
-        zz[n + i] = cy;
-        c = if cx < c2 || cy < c3 { 1 } else { 0 };
+        let acc = (t[n] as DoubleLimb) + (carry as DoubleLimb);
+        t[n - 1] = acc as Limb;
+        t[n] = t[n + 1].wrapping_add((acc >> LIMB_BITS) as Limb);
+        t[n + 1] = 0;
     }
 
-    // Extract result: upper half or subtract m
-    if c == 0 {
-        z.copy_from_slice(&zz[n..2 * n]);
+    if t[n] != 0 || geq(&t[..n], m) {
+        sub_vv(z, &t[..n], m);
     } else {
-        sub_vv(z, &zz[n..2 * n], m);
+        z.copy_from_slice(&t[..n]);
     }
 }
 
-/// z[0..] += x[0..] * y, returns carry.
+/// Montgomery squaring: z = x^2 * R^{-1} mod m.
+pub fn montgomery_square(
+    z: &mut [Limb; LIMBS_2048],
+    x: &[Limb; LIMBS_2048],
+    m: &[Limb; LIMBS_2048],
+    k: Limb,
+) {
+    montgomery_mul(z, x, x, m, k);
+}
+
 #[inline]
-fn add_mul_vvw(z: &mut [Limb], x: &[Limb; LIMBS_2048], y: Limb) -> Limb {
-    let mut carry: Limb = 0;
-    for (zi, &xi) in z.iter_mut().zip(x.iter()) {
-        let product = (xi as DoubleLimb) * (y as DoubleLimb) + (*zi as DoubleLimb) + (carry as DoubleLimb);
-        *zi = product as Limb;
-        carry = (product >> LIMB_BITS) as Limb;
+fn geq(x: &[Limb], y: &[Limb; LIMBS_2048]) -> bool {
+    for i in (0..LIMBS_2048).rev() {
+        if x[i] > y[i] {
+            return true;
+        }
+        if x[i] < y[i] {
+            return false;
+        }
     }
-    carry
+    true
 }
 
-/// z = x - y, assumes x >= y.
 #[inline]
 fn sub_vv(z: &mut [Limb; LIMBS_2048], x: &[Limb], y: &[Limb; LIMBS_2048]) {
     let mut borrow: Limb = 0;
