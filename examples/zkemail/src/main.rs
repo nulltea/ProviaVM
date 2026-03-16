@@ -20,17 +20,17 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
 use trust_dns_resolver::TokioAsyncResolver;
-use zkemail_core::{DKIMInput, DKIMOutput, Rsa65537TrustedAdviceWitness2048};
+use zkemail_core::{DKIMInput, DKIMOutput, Witness2048};
 
 use provia_jolt_sdk::*;
 use jolt_inlines_rsa::{
-    build_rsa65537_trusted_advice_witness,
+    build_witness_2048,
     mont_mul_2048_trace_len,
     mont_square_2048_trace_len,
     modpow_65537_trace_len,
-    trusted_advice_witness_seed_from_commitment,
-    trusted_advice_witness_seed_from_commitment_bytes,
-    validate_rsa65537_trusted_advice_witness,
+    validate_witness_2048,
+    witness_seed_from_commitment,
+    witness_seed_from_commitment_bytes,
     Bytes2048,
 };
 use jolt_inlines_rsa::verify::parse_pkcs1_modulus;
@@ -153,10 +153,10 @@ fn remove_b_value(header_value: &str) -> String {
 fn build_trusted_advice_witness(
     public_key_der: &[u8],
     signature: &[u8],
-) -> eyre::Result<Rsa65537TrustedAdviceWitness2048> {
+) -> eyre::Result<Witness2048> {
     eyre::ensure!(signature.len() == 256, "signature must be 256 bytes");
     let modulus = parse_pkcs1_modulus(public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
-    Ok(build_rsa65537_trusted_advice_witness(
+    Ok(build_witness_2048(
         &modulus,
         &Bytes2048(signature.try_into().context("signature length")?),
     ))
@@ -165,23 +165,23 @@ fn build_trusted_advice_witness(
 fn trusted_advice_witness_seed_from_proof_commitment(
     commitment: &<PCS as CommitmentScheme>::Commitment,
 ) -> eyre::Result<[u8; 32]> {
-    trusted_advice_witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
+    witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
 }
 
 fn validate_trusted_advice_witness(
     input: &DKIMInput,
-    witness: &Rsa65537TrustedAdviceWitness2048,
+    witness: &Witness2048,
 ) -> eyre::Result<()> {
     let modulus = parse_pkcs1_modulus(&input.public_key_der).ok_or_else(|| eyre::eyre!("invalid PKCS#1 DER public key"))?;
     let signature = Bytes2048(input.signature.as_slice().try_into().context("signature length")?);
     eyre::ensure!(
-        validate_rsa65537_trusted_advice_witness(&modulus, &signature, witness),
+        validate_witness_2048(&modulus, &signature, witness),
         "invalid RSA witness relation"
     );
     Ok(())
 }
 
-fn print_profile_summary(input: DKIMInput, witness: Rsa65537TrustedAdviceWitness2048) {
+fn print_profile_summary(input: DKIMInput, witness: Witness2048) {
     let summary = analyze_verify_dkim(TrustedAdvice::from(witness), input);
     println!("arch: {}", if cfg!(feature = "rv64") { "rv64" } else { "rv32" });
     println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
@@ -193,7 +193,7 @@ fn print_profile_summary(input: DKIMInput, witness: Rsa65537TrustedAdviceWitness
 async fn prepare_dkim_input(
     email_path: &PathBuf,
     from_domain: &str,
-) -> eyre::Result<(DKIMInput, Rsa65537TrustedAdviceWitness2048)> {
+) -> eyre::Result<(DKIMInput, Witness2048)> {
     let logger = Logger::root(Discard, o!());
     let raw_email = std::fs::read(email_path).context("reading email file")?;
     let parsed = mailparse::parse_mail(&raw_email).map_err(|e| eyre::eyre!("parse email: {}", e))?;
@@ -294,11 +294,11 @@ async fn prepare_dkim_input(
 }
 
 fn trusted_advice_witness_seed_for_profile(
-    witness: &Rsa65537TrustedAdviceWitness2048,
+    witness: &Witness2048,
 ) -> eyre::Result<[u8; 32]> {
     let witness_bytes = provia_jolt_sdk::postcard::to_stdvec(&TrustedAdvice::from(*witness))
         .context("serializing trusted advice witness")?;
-    Ok(trusted_advice_witness_seed_from_commitment_bytes(&witness_bytes))
+    Ok(witness_seed_from_commitment_bytes(&witness_bytes))
 }
 
 fn parse_worker_addresses(config_path: &PathBuf) -> eyre::Result<[SocketAddr; 3]> {
@@ -317,7 +317,7 @@ fn parse_worker_addresses(config_path: &PathBuf) -> eyre::Result<[SocketAddr; 3]
 
 fn run_profile_mode(
     mut dkim_input: DKIMInput,
-    trusted_advice_witness: Rsa65537TrustedAdviceWitness2048,
+    trusted_advice_witness: Witness2048,
 ) -> eyre::Result<()> {
     dkim_input.rsa_challenge_seed = trusted_advice_witness_seed_for_profile(&trusted_advice_witness)?;
     print_profile_summary(dkim_input, trusted_advice_witness);
@@ -327,7 +327,7 @@ fn run_profile_mode(
 fn prove_and_verify_dkim(
     args: &Args,
     mut dkim_input: DKIMInput,
-    trusted_advice_witness: Rsa65537TrustedAdviceWitness2048,
+    trusted_advice_witness: Witness2048,
 ) -> eyre::Result<()> {
     let target_dir = "/tmp/jolt-guest-targets";
     let mut preprocessing_program = compile_verify_dkim(target_dir);

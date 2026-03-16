@@ -54,7 +54,7 @@ It is no longer the zkemail hot path.
 zkemail now verifies RSA using a trusted-advice witness in `jolt-inlines/rsa::witness`:
 
 1. The host parses the DKIM email and PKCS#1 RSA public key.
-2. The host builds an `Rsa65537TrustedAdviceWitness2048`.
+2. The host builds a `Witness2048`.
 3. The host commits that trusted advice in the proving flow.
 4. The host derives the public `rsa_challenge_seed` from the trusted-advice commitment.
 5. The guest:
@@ -66,15 +66,15 @@ zkemail now verifies RSA using a trusted-advice witness in `jolt-inlines/rsa::wi
 
 ### Witness contents
 
-`Rsa65537TrustedAdviceWitness2048` contains:
+`Witness2048` contains:
 
 - `modulus: Bytes2048`
 - `signature: Bytes2048`
-- `steps: [RsaReductionStep2048; 17]`
+- `steps: [Step2048; 17]`
 
-Each `RsaReductionStep2048` contains:
+Each `Step2048` contains:
 
-- `op: RsaReductionOp`
+- `op: StepOp`
 - `quotient_residues: [u32; 4]`
 - `remainder_residues: [u32; 4]`
 - `remainder: Bytes2048`

@@ -36,10 +36,10 @@ use jolt_core::zkvm::state_manager::{ProofData, ProofKeys};
 use jolt_core::zkvm::witness::DTH_ROOT_OF_K;
 use jolt_core::zkvm::{Jolt, JoltProverPreprocessing, JoltRVArch, JoltRV64IMAC, JoltVerifierPreprocessing};
 use tracer::JoltDevice;
-use zkemail_core::{DKIMInput, Rsa65537TrustedAdviceWitness2048};
+use zkemail_core::{DKIMInput, Witness2048};
 use jolt_inlines_rsa::{
-    build_rsa65537_trusted_advice_witness,
-    trusted_advice_witness_seed_from_commitment_bytes,
+    build_witness_2048,
+    witness_seed_from_commitment_bytes,
     Bytes2048,
 };
 
@@ -100,13 +100,13 @@ fn build_inputs() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     }
 }
 
-fn challenge_seed_from_witness(witness: &Rsa65537TrustedAdviceWitness2048) -> [u8; 32] {
+fn challenge_seed_from_witness(witness: &Witness2048) -> [u8; 32] {
     let witness_bytes = postcard::to_stdvec(witness).unwrap();
-    trusted_advice_witness_seed_from_commitment_bytes(&witness_bytes)
+    witness_seed_from_commitment_bytes(&witness_bytes)
 }
 
 /// Build a synthetic DKIMInput with a valid RSA-2048 PKCS#1v15-SHA256 signature.
-fn build_zkemail_fixture() -> (DKIMInput, Rsa65537TrustedAdviceWitness2048) {
+fn build_zkemail_fixture() -> (DKIMInput, Witness2048) {
     use jolt_inlines_rsa::verify::{parse_pkcs1_modulus, verify_pkcs1v15_sha256_encoded};
     use rsa::pkcs1::EncodeRsaPublicKey;
     use rsa::signature::{SignatureEncoding, Signer};
@@ -132,7 +132,7 @@ fn build_zkemail_fixture() -> (DKIMInput, Rsa65537TrustedAdviceWitness2048) {
     let modulus = parse_pkcs1_modulus(&input.public_key_der).unwrap();
     let signature = Bytes2048(input.signature.clone().try_into().unwrap());
     let header_hash: [u8; 32] = sha2::Sha256::digest(&input.signed_headers).into();
-    let witness = build_rsa65537_trusted_advice_witness(&modulus, &signature);
+    let witness = build_witness_2048(&modulus, &signature);
     let final_be = jolt_inlines_rsa::verify::limbs_to_bytes_be_2048(&witness.steps[16].remainder_limbs.0);
     assert!(verify_pkcs1v15_sha256_encoded(&final_be, &header_hash));
     input.rsa_challenge_seed = challenge_seed_from_witness(&witness);

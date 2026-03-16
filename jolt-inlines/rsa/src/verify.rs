@@ -1,12 +1,11 @@
 //! RSA PKCS#1 v1.5 SHA-256 signature verification.
 
-use crate::modpow::{
-    modpow_65537,
-    modpow_65537_prepared,
-    PreparedModulus2048,
-    ValidatedPreparedModulus2048,
+use crate::modpow::modpow_65537;
+use crate::witness::{
+    accumulate_residue_error, advance_seeded_weight_state, limbs_lt, sampled_step_checks, seeded_weight_state_init,
+    seeded_weights, Bytes2048, Residues2048, StepOp, Witness2048,
 };
-use crate::{Limb, LIMB_BYTES, LIMBS_2048};
+use crate::{Limb, LIMBS_2048, LIMB_BYTES};
 
 /// Verify an RSA PKCS#1 v1.5 signature with SHA-256.
 ///
@@ -15,11 +14,7 @@ use crate::{Limb, LIMB_BYTES, LIMBS_2048};
 /// - `message_hash`: SHA-256 hash of the message (32 bytes)
 ///
 /// Returns `true` if the signature is valid.
-pub fn rsa_verify_pkcs1v15_sha256(
-    n: &[Limb; LIMBS_2048],
-    signature: &[u8; 256],
-    message_hash: &[u8; 32],
-) -> bool {
+pub fn rsa_verify_pkcs1v15_sha256(n: &[Limb; LIMBS_2048], signature: &[u8; 256], message_hash: &[u8; 32]) -> bool {
     let sig_limbs = bytes_be_to_limbs_2048(signature);
 
     let result = modpow_65537(&sig_limbs, n);
@@ -28,36 +23,77 @@ pub fn rsa_verify_pkcs1v15_sha256(
     verify_pkcs1v15_sha256_encoded(&result_bytes, message_hash)
 }
 
-/// Verify an RSA PKCS#1 v1.5 signature with host-prepared Montgomery constants.
-pub fn rsa_verify_prepared_pkcs1v15_sha256(
-    prepared: &ValidatedPreparedModulus2048,
-    signature: &[u8; 256],
+pub fn verify_pkcs1v15_sha256_with_witness(
+    witness: &Witness2048,
+    modulus: &[Limb; LIMBS_2048],
+    signature: &Bytes2048,
+    challenge_seed: &[u8; 32],
     message_hash: &[u8; 32],
 ) -> bool {
-    let sig_limbs = bytes_be_to_limbs_2048(signature);
-    let result = modpow_65537_prepared(&sig_limbs, prepared);
-    let result_bytes = limbs_to_bytes_be_2048(&result);
-    verify_pkcs1v15_sha256_encoded(&result_bytes, message_hash)
+    let modulus_bytes = Bytes2048::from(limbs_to_bytes_be_2048(modulus));
+    if witness.modulus != modulus_bytes || witness.signature != *signature {
+        return false;
+    }
+
+    let modulus_residues = Residues2048::from_bytes(&witness.modulus);
+    let signature_residues = Residues2048::from_bytes(&witness.signature);
+    let mut current_residues = signature_residues;
+    let mut aggregated_error = [0u32; 4];
+    let mut seeded_weight_state = seeded_weight_state_init(challenge_seed);
+    let sampled_step_checks = sampled_step_checks(challenge_seed);
+    let modulus_limbs = bytes_be_to_limbs_2048(modulus_bytes.as_array());
+
+    for (step_idx, step) in witness.steps.iter().enumerate() {
+        let expected_op = if step_idx < 16 { StepOp::Square } else { StepOp::MulBase };
+        if step.op != expected_op || !limbs_lt(&step.remainder_limbs.0, &modulus_limbs) {
+            return false;
+        }
+
+        let rhs_residues = if step_idx < 16 { current_residues } else { signature_residues };
+        let remainder_residues = Residues2048(step.remainder_residues);
+        if sampled_step_checks[step_idx]
+            && Residues2048::from_limbs(&step.remainder_limbs.0).0 != step.remainder_residues
+        {
+            return false;
+        }
+
+        accumulate_residue_error(
+            &mut aggregated_error,
+            &seeded_weights(&seeded_weight_state),
+            &current_residues,
+            &rhs_residues,
+            &Residues2048(step.quotient_residues),
+            &modulus_residues,
+            &remainder_residues,
+        );
+        advance_seeded_weight_state(&mut seeded_weight_state, step_idx);
+
+        current_residues = remainder_residues;
+    }
+
+    let encoded_message = Bytes2048::from(limbs_to_bytes_be_2048(&witness.steps[16].remainder_limbs.0));
+    aggregated_error.iter().all(|&value| value == 0)
+        && verify_pkcs1v15_sha256_encoded(encoded_message.as_array(), message_hash)
 }
 
-pub fn verify_pkcs1v15_sha256_encoded(
-    result_bytes: &[u8; 256],
-    message_hash: &[u8; 32],
-) -> bool {
+pub fn verify_pkcs1v15_sha256_encoded(result_bytes: &[u8; 256], message_hash: &[u8; 32]) -> bool {
     // Check PKCS#1 v1.5 padding:
     // Expected format: 0x00 0x01 [0xFF padding] 0x00 [DigestInfo] [hash]
     // DigestInfo for SHA-256 (DER encoded):
     // 30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20
     const SHA256_DIGEST_INFO: [u8; 19] = [
-        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-        0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
-        0x00, 0x04, 0x20,
+        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04,
+        0x20,
     ];
 
     // result_bytes[0] must be 0x00
-    if result_bytes[0] != 0x00 { return false; }
+    if result_bytes[0] != 0x00 {
+        return false;
+    }
     // result_bytes[1] must be 0x01
-    if result_bytes[1] != 0x01 { return false; }
+    if result_bytes[1] != 0x01 {
+        return false;
+    }
 
     // Find the 0x00 separator after the 0xFF padding
     let hash_with_info_len = 32 + SHA256_DIGEST_INFO.len(); // 51 bytes
@@ -65,11 +101,15 @@ pub fn verify_pkcs1v15_sha256_encoded(
 
     // All bytes from index 2 to separator_idx-1 must be 0xFF
     for i in 2..separator_idx {
-        if result_bytes[i] != 0xFF { return false; }
+        if result_bytes[i] != 0xFF {
+            return false;
+        }
     }
 
     // Separator must be 0x00
-    if result_bytes[separator_idx] != 0x00 { return false; }
+    if result_bytes[separator_idx] != 0x00 {
+        return false;
+    }
 
     // Check DigestInfo
     let di_start = separator_idx + 1;
@@ -93,9 +133,13 @@ pub fn bytes_be_to_limbs_2048(bytes: &[u8; 256]) -> [Limb; LIMBS_2048] {
             buf[j] = bytes[255 - i * LIMB_BYTES - j];
         }
         #[cfg(feature = "rv64")]
-        { limbs[i] = u64::from_le_bytes(buf); }
+        {
+            limbs[i] = u64::from_le_bytes(buf);
+        }
         #[cfg(not(feature = "rv64"))]
-        { limbs[i] = u32::from_le_bytes(buf); }
+        {
+            limbs[i] = u32::from_le_bytes(buf);
+        }
     }
     limbs
 }
@@ -132,13 +176,17 @@ pub fn parse_pkcs1_modulus(der: &[u8]) -> Option<[Limb; LIMBS_2048]> {
     let mut pos = 0;
 
     // SEQUENCE tag
-    if der.get(pos).copied()? != 0x30 { return None; }
+    if der.get(pos).copied()? != 0x30 {
+        return None;
+    }
     pos += 1;
     let (_seq_len, consumed) = parse_der_length(&der[pos..])?;
     pos += consumed;
 
     // First INTEGER: modulus n
-    if der.get(pos).copied()? != 0x02 { return None; }
+    if der.get(pos).copied()? != 0x02 {
+        return None;
+    }
     pos += 1;
     let (n_len, consumed) = parse_der_length(&der[pos..])?;
     pos += consumed;
@@ -147,17 +195,17 @@ pub fn parse_pkcs1_modulus(der: &[u8]) -> Option<[Limb; LIMBS_2048]> {
     pos += n_len;
 
     // Skip leading zero byte if present (sign padding)
-    let n_bytes = if !n_bytes.is_empty() && n_bytes[0] == 0x00 {
-        &n_bytes[1..]
-    } else {
-        n_bytes
-    };
+    let n_bytes = if !n_bytes.is_empty() && n_bytes[0] == 0x00 { &n_bytes[1..] } else { n_bytes };
 
     // Must be exactly 256 bytes (2048 bits)
-    if n_bytes.len() != 256 { return None; }
+    if n_bytes.len() != 256 {
+        return None;
+    }
 
     // Second INTEGER: exponent e (verify it's 65537)
-    if der.get(pos).copied()? != 0x02 { return None; }
+    if der.get(pos).copied()? != 0x02 {
+        return None;
+    }
     pos += 1;
     let (e_len, consumed) = parse_der_length(&der[pos..])?;
     pos += consumed;
@@ -169,7 +217,9 @@ pub fn parse_pkcs1_modulus(der: &[u8]) -> Option<[Limb; LIMBS_2048]> {
     for &b in e_bytes {
         e = e.checked_shl(8)?.checked_add(b as u32)?;
     }
-    if e != 65537 { return None; }
+    if e != 65537 {
+        return None;
+    }
 
     // Convert big-endian modulus bytes to little-endian limbs
     let n_be: &[u8; 256] = n_bytes.try_into().ok()?;
@@ -183,7 +233,9 @@ fn parse_der_length(data: &[u8]) -> Option<(usize, usize)> {
         Some((first as usize, 1))
     } else {
         let num_bytes = (first & 0x7F) as usize;
-        if num_bytes == 0 || num_bytes > 4 { return None; }
+        if num_bytes == 0 || num_bytes > 4 {
+            return None;
+        }
         let mut len: usize = 0;
         for i in 0..num_bytes {
             len = len.checked_shl(8)?.checked_add(*data.get(1 + i)? as usize)?;
@@ -195,6 +247,7 @@ fn parse_der_length(data: &[u8]) -> Option<(usize, usize)> {
 #[cfg(all(test, feature = "host"))]
 mod tests {
     use super::*;
+    use crate::PreparedModulus2048;
 
     #[test]
     fn test_parse_pkcs1_modulus() {
@@ -249,9 +302,13 @@ mod tests {
         let n_bytes = [0xABu8; 256];
         let mut der = Vec::new();
         der.push(0x30);
-        der.push(0x82); der.push(0x01); der.push(0x0A);
+        der.push(0x82);
+        der.push(0x01);
+        der.push(0x0A);
         der.push(0x02);
-        der.push(0x82); der.push(0x01); der.push(0x01);
+        der.push(0x82);
+        der.push(0x01);
+        der.push(0x01);
         der.push(0x00);
         der.extend_from_slice(&n_bytes);
         // Wrong exponent: 3 instead of 65537
@@ -275,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_rsa_verify_e2e() {
-        use rsa::pkcs1::{EncodeRsaPublicKey, DecodeRsaPublicKey};
+        use rsa::pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey};
         use rsa::pkcs1v15::SigningKey;
         use rsa::signature::Signer;
         use sha2::Sha256;
@@ -306,12 +363,6 @@ mod tests {
         // Verify with our implementation
         let result = rsa_verify_pkcs1v15_sha256(&n_limbs, &sig_arr, &hash);
         assert!(result, "RSA signature should verify");
-
-        let prepared = PreparedModulus2048::from_modulus(n_limbs)
-            .validate()
-            .unwrap();
-        let prepared_result = rsa_verify_prepared_pkcs1v15_sha256(&prepared, &sig_arr, &hash);
-        assert!(prepared_result, "prepared RSA signature should verify");
 
         // Verify with wrong hash fails
         let mut bad_hash = hash;
