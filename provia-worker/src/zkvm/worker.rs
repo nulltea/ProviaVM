@@ -22,6 +22,7 @@ use jolt_core::field::JoltField;
 use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
 use jolt_core::poly::commitment::dory::{DoryContext, DoryGlobals};
 use jolt_core::transcripts::Transcript;
+use jolt_core::utils::math::Math;
 use jolt_core::zkvm::instruction_lookups::D;
 use jolt_core::zkvm::witness::{compute_d_parameter, AllCommittedPolynomials, CommittedPolynomial, DTH_ROOT_OF_K};
 use mpc_core::protocols::rep3::network::{IoContextPool, Rep3NetworkWorker};
@@ -36,6 +37,14 @@ use rand::distributions::{Distribution, Standard};
 pub struct Rep3JoltDagWorker;
 
 impl Rep3JoltDagWorker {
+    fn trusted_advice_setup<F, PCS>(max_size: usize) -> PCS::ProverSetup
+    where
+        F: JoltField,
+        PCS: CommitmentScheme<Field = F>,
+    {
+        PCS::setup_prover(max_size.next_power_of_two().log_2())
+    }
+
     /// Generate witness polynomials, commit, send commitment shares to coordinator,
     /// and open hint shares across parties.
     ///
@@ -342,6 +351,35 @@ impl Rep3JoltDagWorker {
         for (i, share) in field_words.into_iter().enumerate() {
             coeffs[i + 1] = share;
         }
+
+        // Debug: open (reconstruct) coefficients and hash for comparison with host
+        {
+            use mpc_core::protocols::rep3::arithmetic::open_vec;
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+
+            let opened: Vec<F> = open_vec(&coeffs, io_ctx.main())?;
+            let mut h = DefaultHasher::new();
+            opened.len().hash(&mut h);
+            for v in &opened {
+                // JoltField: Into<u64> for small values, but we need canonical bytes.
+                // Use the Debug repr as a stable hash input.
+                format!("{:?}", v).hash(&mut h);
+            }
+            let poly_hash = h.finish();
+            let nonzero = opened.iter().filter(|v| **v != F::zero()).count();
+            eprintln!(
+                "[WORKER shared_advice_polynomial] party={} advice_bytes={} words={} max_size={} poly_len={} nonzero_coeffs={} opened_poly_hash={:#018x}",
+                io_ctx.main().id,
+                advice.len(),
+                words.len(),
+                max_size,
+                coeffs.len(),
+                nonzero,
+                poly_hash,
+            );
+        }
+
         Ok(Rep3MultilinearPolynomial::from_shared_coeffs(coeffs))
     }
 
@@ -380,9 +418,10 @@ impl Rep3JoltDagWorker {
         DoryGlobals::set_context(DoryContext::UntrustedAdvice);
 
         let poly = Self::shared_advice_polynomial::<F, PCS, N>(&state.program_io.untrusted_advice, max_size, io_ctx)?;
+        let trusted_advice_setup = Self::trusted_advice_setup::<F, PCS>(max_size);
         let (commitment, hint) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::commit_rep3(
             &poly,
-            &state.prover_state.preprocessing.generators,
+            &trusted_advice_setup,
             false,
             io_ctx,
             preproc,
@@ -424,13 +463,16 @@ impl Rep3JoltDagWorker {
         DoryGlobals::set_context(DoryContext::TrustedAdvice);
 
         let poly = Self::shared_advice_polynomial::<F, PCS, N>(&state.program_io.trusted_advice, max_size, io_ctx)?;
+        let trusted_advice_setup = Self::trusted_advice_setup::<F, PCS>(max_size);
         let (commitment, hint) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::commit_rep3(
             &poly,
-            &state.prover_state.preprocessing.generators,
+            &trusted_advice_setup,
             false,
             io_ctx,
             preproc,
         )?;
+
+        eprintln!("[WORKER commit_trusted_advice] party={} commitment={:?}", io_ctx.main().id, commitment);
 
         state.trusted_advice_commitment = Some(commitment);
         state.prover_state.trusted_advice_polynomial = Some(poly);
@@ -482,9 +524,10 @@ impl Rep3JoltDagWorker {
             MaybeShared::Public(Some(v)) => v,
             MaybeShared::Public(None) => unreachable!("advice hint should not be None"),
         });
+        let trusted_advice_setup = Self::trusted_advice_setup::<F, PCS>(poly.len());
         let result = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::prove_rep3(
             poly,
-            &state.prover_state.preprocessing.generators,
+            &trusted_advice_setup,
             &opening_point,
             hint,
             io_ctx.network(),
@@ -525,9 +568,10 @@ impl Rep3JoltDagWorker {
             MaybeShared::Public(Some(v)) => v,
             MaybeShared::Public(None) => unreachable!("trusted advice hint should not be None"),
         });
+        let trusted_advice_setup = Self::trusted_advice_setup::<F, PCS>(poly.len());
         let result = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::prove_rep3(
             poly,
-            &state.prover_state.preprocessing.generators,
+            &trusted_advice_setup,
             &opening_point,
             hint,
             io_ctx.network(),
@@ -536,5 +580,120 @@ impl Rep3JoltDagWorker {
         result?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rep3JoltDagWorker;
+    use crate::host::jolt_device::Rep3ProgramIOInput;
+    use crate::poly::commitment::dory::DoryCommitmentScheme;
+    use crate::poly::commitment::Rep3CommitmentScheme;
+    use crate::poly::Rep3MultilinearPolynomial;
+    use crate::utils::types::MaybeShared;
+    use ark_bn254::Fr;
+    use jolt_core::common::constants::RAM_WORD_SIZE;
+    use jolt_core::common::jolt_device::{JoltDevice, MemoryConfig, MemoryLayout};
+    use jolt_core::poly::commitment::commitment_scheme::CommitmentScheme;
+    use jolt_core::poly::commitment::dory::{DoryContext, DoryGlobals};
+    use jolt_core::poly::multilinear_polynomial::MultilinearPolynomial;
+    use jolt_core::transcripts::Blake2bTranscript;
+    use jolt_core::utils::math::Math;
+    use crate::poly::commitment::dory::test_support::init_dory_globals;
+    use crate::utils::test_utils::worker_test_lock;
+    use mpc_core::protocols::rep3::test_utils::run_rep3_local_test_with_coordinator;
+    use mpc_core::protocols::rep3_ring::edabits;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha12Rng;
+
+    #[test]
+    fn trusted_advice_commitment_matches_public_commit() {
+        let _guard = worker_test_lock();
+
+        let trusted_advice = (0u8..=255).cycle().take(777).collect::<Vec<_>>();
+        let memory_layout = MemoryLayout::new(&MemoryConfig {
+            max_input_size: 0,
+            max_output_size: 0,
+            max_untrusted_advice_size: 0,
+            max_trusted_advice_size: 16_384,
+            stack_size: 0,
+            memory_size: 0,
+            program_size: Some(0),
+        });
+        let max_size = memory_layout.max_trusted_advice_size as usize / RAM_WORD_SIZE as usize;
+
+        init_dory_globals(1, max_size);
+        DoryGlobals::initialize_context(1, max_size, DoryContext::TrustedAdvice, None);
+        DoryGlobals::set_context(DoryContext::TrustedAdvice);
+        let setup = <DoryCommitmentScheme as CommitmentScheme>::setup_prover(max_size.log_2());
+
+        let mut public_coeffs = vec![0u64; max_size];
+        for (i, chunk) in trusted_advice.chunks(RAM_WORD_SIZE as usize).enumerate() {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            public_coeffs[i + 1] = u64::from_le_bytes(word);
+        }
+        let public_poly = MultilinearPolynomial::<Fr>::from(public_coeffs);
+        let (public_commitment, _) = <DoryCommitmentScheme as CommitmentScheme>::commit(&public_poly, &setup);
+        DoryGlobals::set_context(DoryContext::Main);
+
+        let mut rng = ChaCha12Rng::seed_from_u64(0);
+        let shares: [Rep3ProgramIOInput; 3] = Rep3ProgramIOInput::generate_secret_shares(
+            JoltDevice {
+                inputs: vec![],
+                outputs: vec![],
+                panic: false,
+                trusted_advice,
+                untrusted_advice: vec![],
+                memory_layout: memory_layout.clone(),
+            },
+            &mut rng,
+        )
+        .try_into()
+        .unwrap();
+
+        let (worker_results, _) = run_rep3_local_test_with_coordinator(
+            0,
+            |party_idx| shares[party_idx].clone(),
+            || (),
+            move |program_io, mut io_ctx| {
+                DoryGlobals::initialize_context(1, max_size, DoryContext::TrustedAdvice, None);
+                DoryGlobals::set_context(DoryContext::TrustedAdvice);
+                let poly = Rep3JoltDagWorker::shared_advice_polynomial::<Fr, DoryCommitmentScheme, _>(
+                    &program_io.trusted_advice,
+                    max_size,
+                    &mut io_ctx,
+                )?;
+                let mut preproc = edabits::preprocess_pool::<Fr, _>(
+                    &std::env::temp_dir().join(format!("provia-worker-advice-commit-{}", io_ctx.party_idx())),
+                    [0, 0, 0, 0, 0],
+                    0,
+                    0,
+                    0,
+                    0,
+                    &mut io_ctx,
+                )?;
+                let out = <DoryCommitmentScheme as Rep3CommitmentScheme<Fr, Blake2bTranscript>>::commit_rep3(
+                    &poly,
+                    &setup,
+                    false,
+                    &mut io_ctx,
+                    &mut preproc,
+                )?;
+                DoryGlobals::set_context(DoryContext::Main);
+                Ok::<_, eyre::Report>(out)
+            },
+            |(), _| Ok(()),
+        );
+
+        let shares: Vec<&MaybeShared<<DoryCommitmentScheme as CommitmentScheme>::Commitment>> =
+            worker_results.iter().map(|(commitment, _)| commitment).collect();
+        let combined =
+            <DoryCommitmentScheme as provia_coordinator::poly::commitment::Rep3CommitmentScheme<
+                Fr,
+                Blake2bTranscript,
+            >>::combine_commitment_shares(&shares);
+
+        assert_eq!(combined, public_commitment);
     }
 }

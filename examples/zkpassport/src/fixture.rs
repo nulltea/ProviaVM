@@ -1,3 +1,4 @@
+use jolt_inlines_sha2::Sha256;
 /// Synthetic fixture generation for testing without real passport data.
 ///
 /// Generates a self-consistent PassportInput with:
@@ -9,39 +10,32 @@
 /// - The corresponding DS public key
 use rand::CryptoRng;
 use rand::RngCore;
+use rand::SeedableRng;
+use rand_chacha::ChaCha12Rng;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::signature::{SignatureEncoding, Signer};
 use rsa::RsaPrivateKey;
-use jolt_inlines_sha2::Sha256;
 use zkpassport_core::PassportInput;
 
 /// OID for SHA-256: 2.16.840.1.101.3.4.2.1
-const OID_SHA256: &[u8] = &[
-    0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
-];
+const OID_SHA256: &[u8] = &[0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
 
 /// OID for id-data (CMS content type): 1.2.840.113549.1.7.1
-const OID_ID_DATA: &[u8] = &[
-    0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01,
-];
+const OID_ID_DATA: &[u8] = &[0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01];
 
 /// OID for id-contentType (CMS attribute): 1.2.840.113549.1.9.3
-const OID_CONTENT_TYPE: &[u8] = &[
-    0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x03,
-];
+const OID_CONTENT_TYPE: &[u8] = &[0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x03];
 
 /// OID for id-messageDigest (CMS attribute): 1.2.840.113549.1.9.4
-const OID_MESSAGE_DIGEST: &[u8] = &[
-    0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x04,
-];
+const OID_MESSAGE_DIGEST: &[u8] = &[0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x04];
 
 /// Generate a synthetic PassportInput with the given DOB and today's date.
 ///
 /// `dob_yymmdd`: 6 ASCII chars, e.g. b"000315" for 2000-03-15
 /// `today_yyyymmdd`: e.g. 20260315
 pub fn generate_fixture(dob_yymmdd: &[u8; 6], today_yyyymmdd: u32) -> PassportInput {
-    generate_fixture_with_rng(dob_yymmdd, today_yyyymmdd, &mut rand::rngs::OsRng)
+    generate_fixture_with_rng(dob_yymmdd, today_yyyymmdd, &mut ChaCha12Rng::seed_from_u64(42))
 }
 
 /// Generate a synthetic PassportInput using a caller-supplied RNG (for determinism in tests).
@@ -77,11 +71,7 @@ pub fn generate_fixture_with_rng(
     let signature: Vec<u8> = signing_key.sign(&signed_attrs_der).to_vec();
 
     // 9. Serialize DS public key as PKCS#1 DER
-    let ds_pubkey_der = public_key
-        .to_pkcs1_der()
-        .expect("PKCS#1 encode")
-        .as_bytes()
-        .to_vec();
+    let ds_pubkey_der = public_key.to_pkcs1_der().expect("PKCS#1 encode").as_bytes().to_vec();
 
     PassportInput {
         dg1,
@@ -280,8 +270,6 @@ mod tests {
         let pubkey = RsaPublicKey::from_pkcs1_der(&input.ds_pubkey_der).expect("decode pubkey");
         let verifying_key = VerifyingKey::<sha2::Sha256>::new(pubkey);
         let sig = rsa::pkcs1v15::Signature::try_from(input.signature.as_slice()).expect("sig");
-        verifying_key
-            .verify(&input.signed_attrs_der, &sig)
-            .expect("RSA signature must verify");
+        verifying_key.verify(&input.signed_attrs_der, &sig).expect("RSA signature must verify");
     }
 }

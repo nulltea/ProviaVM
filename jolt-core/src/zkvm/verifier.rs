@@ -1343,7 +1343,17 @@ impl JoltDAG {
             _ => return Err(anyhow::anyhow!("Trusted advice proof not found")),
         };
 
-        PCS::verify(&proof, verifier_setup, transcript, &point.r, &eval, trusted_advice_commitment)
+        let trusted_advice_setup = PCS::setup_prover(max_size.next_power_of_two().log_2());
+        let trusted_advice_verifier_setup = PCS::setup_verifier(&trusted_advice_setup);
+
+        PCS::verify(
+            &proof,
+            &trusted_advice_verifier_setup,
+            transcript,
+            &point.r,
+            &eval,
+            trusted_advice_commitment,
+        )
             .map_err(|e| anyhow::anyhow!("Trusted advice opening proof verification failed: {e:?}"))?;
 
         Ok(())

@@ -1,3 +1,4 @@
+use jolt_core::common::constants::RAM_WORD_SIZE;
 use jolt_core::common::jolt_device::MemoryLayout;
 use mpc_core::protocols::rep3_ring::{self, Rep3RingShare};
 use serde::{Deserialize, Serialize};
@@ -48,7 +49,7 @@ impl Rep3ProgramIOInput {
     }
 
     pub fn pack_advice_words(advice: &[Rep3RingShare<u8>]) -> Vec<Rep3RingShare<u64>> {
-        advice.chunks(8).map(Rep3RingShare::<u64>::from_le_bytes).collect()
+        advice.chunks(RAM_WORD_SIZE as usize).map(Rep3RingShare::<u64>::from_le_bytes).collect()
     }
 }
 
@@ -58,6 +59,7 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha12Rng;
     use tracer::JoltDevice;
+    use jolt_core::common::constants::RAM_WORD_SIZE;
 
     use super::Rep3ProgramIOInput;
 
@@ -92,7 +94,16 @@ mod tests {
             .zip(trusted_words2)
             .map(|((w0, w1), w2)| combine_ring_element_binary(w0, w1, w2).0)
             .collect();
-        assert_eq!(trusted_reconstructed, vec![0x0000_0055_4433_2211]);
+        let expected_trusted: Vec<u64> = program_io
+            .trusted_advice
+            .chunks(RAM_WORD_SIZE as usize)
+            .map(|chunk| {
+                let mut word = [0u8; 8];
+                word[..chunk.len()].copy_from_slice(chunk);
+                u64::from_le_bytes(word)
+            })
+            .collect();
+        assert_eq!(trusted_reconstructed, expected_trusted);
 
         let untrusted_words0 = Rep3ProgramIOInput::pack_advice_words(&share0.untrusted_advice);
         let untrusted_words1 = Rep3ProgramIOInput::pack_advice_words(&share1.untrusted_advice);
@@ -103,6 +114,15 @@ mod tests {
             .zip(untrusted_words2)
             .map(|((w0, w1), w2)| combine_ring_element_binary(w0, w1, w2).0)
             .collect();
-        assert_eq!(untrusted_reconstructed, vec![0x3412_ffee_ddcc_bbaa, 0x0000_0000_0000_0056]);
+        let expected_untrusted: Vec<u64> = program_io
+            .untrusted_advice
+            .chunks(RAM_WORD_SIZE as usize)
+            .map(|chunk| {
+                let mut word = [0u8; 8];
+                word[..chunk.len()].copy_from_slice(chunk);
+                u64::from_le_bytes(word)
+            })
+            .collect();
+        assert_eq!(untrusted_reconstructed, expected_untrusted);
     }
 }

@@ -37,6 +37,16 @@ use tracing::info_span;
 pub struct Rep3JoltDag;
 
 impl Rep3JoltDag {
+    fn trusted_advice_setup<F, PCS>(max_size: usize) -> PCS::ProverSetup
+    where
+        F: JoltField,
+        PCS: CommitmentScheme<Field = F>,
+    {
+        use jolt_core::utils::math::Math;
+
+        PCS::setup_prover(max_size.next_power_of_two().log_2())
+    }
+
     #[tracing::instrument(skip_all, name = "JoltDag::prove")]
     pub fn prove<'a, F, ProofTranscript, PCS, N>(
         mut state: StateManager<'a, F, ProofTranscript, PCS>,
@@ -773,9 +783,9 @@ impl Rep3JoltDag {
         DoryGlobals::set_context(DoryContext::TrustedAdvice);
 
         let commitment = state.trusted_advice_commitment.as_ref().unwrap();
-        let pcs_setup = state.pcs_setup.expect("pcs_setup must be set for trusted advice opening proof");
+        let trusted_advice_setup = Self::trusted_advice_setup::<F, PCS>(max_size);
         let (proof, _blinding) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::coordinate_prove(
-            pcs_setup,
+            &trusted_advice_setup,
             &mut state.transcript,
             network,
             &advice_opening_point,
@@ -840,7 +850,10 @@ impl Rep3JoltDag {
         } else {
             eyre::ensure!(present.len() == 3, "expected trusted advice commitment shares from all 3 parties");
             let shares: Vec<&MaybeShared<PCS::Commitment>> = present.iter().collect();
-            Some(<PCS as Rep3CommitmentScheme<F, ProofTranscript>>::combine_commitment_shares(&shares))
+            eprintln!("[COORDINATOR receive_trusted_advice_commitment] combining {} shares", shares.len());
+            let combined = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::combine_commitment_shares(&shares);
+            eprintln!("[COORDINATOR receive_trusted_advice_commitment] combined: {:?}", combined);
+            Some(combined)
         };
         Ok(())
     }

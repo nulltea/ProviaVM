@@ -152,6 +152,12 @@ impl CommitmentScheme for DoryCommitmentScheme {
         let sigma = num_cols.log_2();
         let nu = num_rows.log_2();
 
+        eprintln!(
+            "[HOST DoryCommitmentScheme::commit] context={:?} sigma={} nu={} num_cols={} num_rows={} poly_num_vars={} setup_g1_len={} setup_g2_len={}",
+            DoryGlobals::current_context(), sigma, nu, num_cols, num_rows,
+            poly.get_num_vars(), setup.g1_vec.len(), setup.g2_vec.len(),
+        );
+
         let (tier_2, row_commitments, _commit_blind) =
             <MultilinearPolynomial<ark_bn254::Fr> as Polynomial<ArkFr>>::commit::<
                 BN254,

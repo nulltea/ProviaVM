@@ -8,13 +8,18 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 
 use jolt_core::host::Program;
-use jolt_inlines_rsa::{build_witness_2048, witness_seed_from_commitment_bytes, Bytes2048, Witness2048};
+use jolt_inlines_rsa::{
+    build_witness_2048, witness_seed_from_commitment, witness_seed_from_commitment_bytes, Bytes2048, Witness2048,
+};
 use jolt_inlines_sha2::Sha256;
+use guest::{commit_trusted_advice_verify_passport, compile_verify_passport, preprocess_prover_verify_passport};
 use provia_worker::utils::test_utils::{
     build_test_fixture_from_parts, prove_test_fixture, verify_test_fixture, worker_test_lock,
     TestFixture,
 };
 use zkpassport_core::PassportInput;
+use provia_jolt_sdk::Serializable;
+use provia_worker::host::program::generate_trace_shares;
 
 fn configure_program() -> Program {
     let mut program = Program::new("zkpassport-guest");
@@ -158,10 +163,18 @@ fn prove_zkpassport_fixture() -> TestFixture {
     let untrusted_advice = postcard::to_stdvec(&input).unwrap();
     let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
 
-    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len) =
+    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len) =
         build_test_fixture_from_parts(&mut program, vec![], untrusted_advice, trusted_advice);
 
-    prove_test_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+    prove_test_fixture(
+        shares,
+        preprocessing,
+        verifier_preprocessing,
+        io_device,
+        ram_k,
+        raw_trace_len,
+        padded_len,
+    )
 }
 
 #[test]
@@ -182,8 +195,66 @@ fn trace_only() {
 }
 
 #[test]
+fn trusted_advice_trace_bytes_match_local_serialization() {
+    let _test_guard = worker_test_lock();
+    let mut program = configure_program();
+
+    let (input, witness) = build_zkpassport_fixture();
+    let input_bytes = postcard::to_stdvec(&input).unwrap();
+    let trusted_advice_bytes = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
+    let mut rng = ChaCha12Rng::seed_from_u64(0);
+    let (_bytecode, _memory_init, program_io, _raw_trace_len, _shares) =
+        generate_trace_shares(&mut program, &input_bytes, &[], &trusted_advice_bytes, &mut rng);
+
+    assert_eq!(
+        program_io.trusted_advice, trusted_advice_bytes,
+        "traced program_io trusted advice must match locally serialized trusted advice bytes",
+    );
+}
+
+#[test]
 fn prove_correct() {
     let _test_guard = worker_test_lock();
     let fixture = prove_zkpassport_fixture();
     verify_test_fixture(fixture).expect("Vanilla verification of zkpassport MPC proof failed");
+}
+
+#[test]
+fn trusted_advice_commitment_matches_local_commit_helper() {
+    let _test_guard = worker_test_lock();
+    let fixture = prove_zkpassport_fixture();
+    let (_input, witness) = build_zkpassport_fixture();
+
+    let target_dir = "/tmp/jolt-guest-targets";
+    let mut program = compile_verify_passport(target_dir);
+    let preprocessing = preprocess_prover_verify_passport(&mut program);
+    let (local_commitment, _hint) =
+        commit_trusted_advice_verify_passport(TrustedAdvice::from(witness), &preprocessing);
+    let local_commitment = local_commitment.expect("local trusted advice commitment");
+    let proof_commitment = fixture
+        .proof
+        .trusted_advice_commitment
+        .as_ref()
+        .expect("proof trusted advice commitment");
+
+    assert_eq!(
+        witness_seed_from_commitment(&local_commitment).unwrap(),
+        witness_seed_from_commitment(proof_commitment).unwrap(),
+        "proof trusted advice commitment seed must match local commit helper",
+    );
+}
+
+#[test]
+fn prove_correct_roundtrip_serialized_proof() {
+    let _test_guard = worker_test_lock();
+    let fixture = prove_zkpassport_fixture();
+    let proof_bytes = fixture.proof.serialize_to_bytes().expect("serialize proof");
+    let proof = <_>::deserialize_from_bytes(&proof_bytes).expect("deserialize proof");
+    let fixture = TestFixture {
+        proof,
+        verifier_preprocessing: fixture.verifier_preprocessing,
+        io_device: fixture.io_device,
+        ram_k: fixture.ram_k,
+    };
+    verify_test_fixture(fixture).expect("Round-tripped zkpassport proof failed verification");
 }

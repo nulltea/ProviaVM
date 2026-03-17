@@ -35,6 +35,7 @@ TRACY_CAPTURE=${TRACY_CAPTURE:-0}
 JEMALLOC_PRESET=${JEMALLOC_PRESET:-default}
 EXTRA_FEATURES=${EXTRA_FEATURES:-}
 TRACE_SUFFIX="${NUM_ITERS}_${RAYON_THREADS}T_${MPC_QUIC_CONN_LANES}L_${NETWORK_FORKS}F"
+CLIENT_EXAMPLE=${CLIENT_EXAMPLE:-sha2-chain}
 
 # Ports — PORT_OFFSET shifts all port families for concurrent worktree runs
 PORT_OFFSET=${PORT_OFFSET:-0}
@@ -62,6 +63,35 @@ setup_jemalloc_preset "$JEMALLOC_PRESET"
 
 echo "=== E2E Test (transport=$TRANSPORT) ==="
 
+case "$CLIENT_EXAMPLE" in
+  sha2-chain)
+    CLIENT_MANIFEST="$REPO_DIR/examples/sha2-chain/Cargo.toml"
+    CLIENT_BIN="$REPO_DIR/target/release/sha2-chain"
+    CLIENT_LABEL="sha2-chain"
+    CLIENT_ARGS=(--config-path "$ARTIFACT_DIR/config_delegator.toml" --num-iters "$NUM_ITERS")
+    ;;
+  zkemail)
+    CLIENT_MANIFEST="$REPO_DIR/examples/zkemail/Cargo.toml"
+    CLIENT_BIN="$REPO_DIR/target/release/zkemail"
+    CLIENT_LABEL="zkemail"
+    CLIENT_ARGS=(
+      --config-path "$ARTIFACT_DIR/config_delegator.toml"
+      --email-path "$REPO_DIR/examples/zkemail/test-emails/gmail.eml"
+      --from-domain gmail.com
+    )
+    ;;
+  zkpassport)
+    CLIENT_MANIFEST="$REPO_DIR/examples/zkpassport/Cargo.toml"
+    CLIENT_BIN="$REPO_DIR/target/release/zkpassport"
+    CLIENT_LABEL="zkpassport"
+    CLIENT_ARGS=(--config-path "$ARTIFACT_DIR/config_delegator.toml" --generate)
+    ;;
+  *)
+    echo "unsupported CLIENT_EXAMPLE=$CLIENT_EXAMPLE" >&2
+    exit 1
+    ;;
+esac
+
 # ── 1. Build binaries ────────────────────────────────────────────────────────
 
 echo "Building binaries..."
@@ -78,7 +108,7 @@ cargo build --release \
   -p mpc-net --bin gen_configs
 
 cargo build --release \
-  --manifest-path "$REPO_DIR/examples/sha2-chain/Cargo.toml" \
+  --manifest-path "$CLIENT_MANIFEST" \
   --target-dir "$REPO_DIR/target"
 
 # ── 2. Generate configs ──────────────────────────────────────────────────────
@@ -174,11 +204,9 @@ WORKER_ADDRS="127.0.0.1:${USER_LISTEN_BASE_PORT}"
 WORKER_ADDRS="${WORKER_ADDRS},127.0.0.1:$((USER_LISTEN_BASE_PORT + 1))"
 WORKER_ADDRS="${WORKER_ADDRS},127.0.0.1:$((USER_LISTEN_BASE_PORT + 2))"
 
-echo "Running sha2-chain client (workers=$WORKER_ADDRS)..."
+echo "Running $CLIENT_LABEL client (workers=$WORKER_ADDRS)..."
 
-"$REPO_DIR/target/release/sha2-chain" \
-  --config-path "$ARTIFACT_DIR/config_delegator.toml" \
-  --num-iters "$NUM_ITERS"
+"$CLIENT_BIN" "${CLIENT_ARGS[@]}"
 
 echo ""
 echo "=== E2E Test PASSED (transport=$TRANSPORT) ==="

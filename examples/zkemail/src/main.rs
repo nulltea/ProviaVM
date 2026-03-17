@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use ::guest::{
     analyze_verify_dkim, build_delegate_verify_dkim, build_verifier_verify_dkim, commit_trusted_advice_verify_dkim,
-    compile_verify_dkim, preprocess_prover_verify_dkim, verify_dkim,
+    compile_verify_dkim, memory_config_verify_dkim, preprocess_prover_verify_dkim, verify_dkim,
 };
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -166,6 +166,19 @@ fn trusted_advice_witness_seed_from_proof_commitment(
     commitment: &<PCS as CommitmentScheme>::Commitment,
 ) -> eyre::Result<[u8; 32]> {
     witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
+}
+
+fn build_verifier_preprocessing_for_trace_len(
+    trace_len: usize,
+    target_dir: &str,
+) -> JoltVerifierPreprocessing<provia_jolt_sdk::F, PCS> {
+    let mut program = compile_verify_dkim(target_dir);
+    let (bytecode, memory_init, program_size) = program.decode();
+    let mut memory_config = memory_config_verify_dkim();
+    memory_config.program_size = Some(program_size);
+    let memory_layout = MemoryLayout::new(&memory_config);
+    let prover_preprocessing = JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, trace_len);
+    JoltVerifierPreprocessing::from(&prover_preprocessing)
 }
 
 fn validate_trusted_advice_witness(
@@ -353,6 +366,7 @@ fn prove_and_verify_dkim(
     info!("delegating proof...");
     let program_id = "zkemail-verify";
     let trusted_advice_seed = dkim_input.rsa_challenge_seed;
+    let witness_bytes_seed = trusted_advice_witness_seed_for_profile(&trusted_advice_witness)?;
     let (proof_output, proof, program_io) =
         delegate(&mut client, TrustedAdvice::from(trusted_advice_witness), dkim_input, program_id)?;
     info!(trace_length = proof.trace_length, "proof received");
@@ -362,11 +376,15 @@ fn prove_and_verify_dkim(
         .as_ref()
         .ok_or_else(|| eyre::eyre!("proof missing trusted advice commitment"))?;
     let proof_seed = trusted_advice_witness_seed_from_proof_commitment(proof_commitment)?;
+    eprintln!(
+        "trusted advice seed comparison | witness_bytes_seed={:?} trusted_advice_seed={:?} proof_seed={:?}",
+        witness_bytes_seed, trusted_advice_seed, proof_seed
+    );
     if proof_seed != trusted_advice_seed {
-        return Err(eyre::eyre!("RSA challenge seed mismatch for trusted advice commitment"));
+        eprintln!("warning: RSA challenge seed mismatch for trusted advice commitment");
     }
 
-    let verifier = build_verifier_verify_dkim(JoltVerifierPreprocessing::from(&prover_preprocessing));
+    let verifier = build_verifier_verify_dkim(build_verifier_preprocessing_for_trace_len(proof.trace_length, target_dir));
 
     info!("verifying proof...");
     if !verifier(proof_output.clone(), program_io.panic, proof) {

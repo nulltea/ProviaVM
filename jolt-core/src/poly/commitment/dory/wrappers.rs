@@ -92,7 +92,14 @@ impl DoryPolynomial<ArkFr> for MultilinearPolynomial<Fr> {
         let row_commitments = commit_tier_1::<E>(self, &setup.g1_vec, num_cols)?;
 
         let g2_bases = &setup.g2_vec[..row_commitments.len()];
-        let commitment = E::multi_pair_g2_setup(&row_commitments, g2_bases);
+        // The global prepared-point cache holds generators from the main-trace setup.
+        // Advice contexts use a separate setup with different generators, so bypass
+        // the cache to avoid pairing against wrong g2 points.
+        let commitment = if DoryGlobals::current_context() == DoryContext::Main {
+            E::multi_pair_g2_setup(&row_commitments, g2_bases)
+        } else {
+            E::multi_pair(&row_commitments, g2_bases)
+        };
 
         // In ZK mode, blind the tier-2 commitment with r_d1 * HT
         let r_d1: ArkFr = Mo::sample();

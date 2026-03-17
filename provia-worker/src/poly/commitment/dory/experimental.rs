@@ -745,6 +745,7 @@ mod tests {
     use super::*;
     use crate::poly::compact_polynomial::Rep3CompactPolynomial;
     use crate::poly::{Rep3MultilinearPolynomial, Rep3SharedPoly};
+    use crate::host::jolt_device::Rep3ProgramIOInput;
     use crate::utils::types::MaybeShared;
     use ark_ec::scalar_mul::variable_base::VariableBaseMSM as ArkVariableBaseMSM;
     use ark_ec::CurveGroup;
@@ -760,6 +761,7 @@ mod tests {
     use mpc_core::protocols::rep3::test_utils::{run_rep3_local_test_with_coordinator, LocalRep3TestWorkerNet};
     use mpc_core::protocols::rep3::Rep3PrimeFieldShare;
     use mpc_core::protocols::rep3_ring;
+    use mpc_core::protocols::rep3_ring::edabits;
     use mpc_core::protocols::rep3_ring::conversion as ring_conv;
     use mpc_core::protocols::rep3_ring::edabits::PreprocessingPool;
     use mpc_core::protocols::rep3_ring::ring::bit::Bit;
@@ -1061,5 +1063,99 @@ mod tests {
 
         let mpc_sum = mpc_results[0] + mpc_results[1] + mpc_results[2];
         assert_eq!(mpc_sum, true_msm, "MPC-corrected MSM must equal true MSM");
+    }
+
+    #[test]
+    fn trusted_advice_commitment_matches_public_commit() {
+        use jolt_core::common::jolt_device::{JoltDevice, MemoryLayout};
+
+        let trusted_advice = (0u8..=255).cycle().take(777).collect::<Vec<_>>();
+        let memory_layout = MemoryLayout::new(&jolt_core::common::jolt_device::MemoryConfig {
+            max_input_size: 0,
+            max_output_size: 0,
+            max_untrusted_advice_size: 0,
+            max_trusted_advice_size: 16_384,
+            stack_size: 0,
+            memory_size: 0,
+            program_size: Some(0),
+        });
+        let max_size = memory_layout.max_trusted_advice_size as usize
+            / jolt_core::common::constants::RAM_WORD_SIZE as usize;
+
+        crate::poly::commitment::dory::test_support::init_dory_globals(256, 512);
+        DoryGlobals::initialize_context(1, max_size, DoryContext::TrustedAdvice, None);
+        DoryGlobals::set_context(DoryContext::TrustedAdvice);
+
+        let setup = <DoryCommitmentScheme as CommitmentScheme>::setup_prover(max_size.log_2());
+
+        let mut coeffs = vec![0u64; max_size];
+        for (i, chunk) in trusted_advice.chunks(jolt_core::common::constants::RAM_WORD_SIZE as usize).enumerate() {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            coeffs[i + 1] = u64::from_le_bytes(word);
+        }
+        let public_poly = MultilinearPolynomial::from(coeffs);
+        let (public_commitment, _public_hint) =
+            <DoryCommitmentScheme as CommitmentScheme>::commit(&public_poly, &setup);
+
+        let mut rng = ChaCha12Rng::seed_from_u64(0);
+        let [share0, share1, share2]: [crate::host::jolt_device::Rep3ProgramIOInput; 3] =
+            Rep3ProgramIOInput::generate_secret_shares(
+                JoltDevice {
+                    inputs: vec![],
+                    outputs: vec![],
+                    panic: false,
+                    trusted_advice: trusted_advice.clone(),
+                    untrusted_advice: vec![],
+                    memory_layout: memory_layout.clone(),
+                },
+                &mut rng,
+            )
+            .try_into()
+            .unwrap();
+
+        let (results, _) = run_rep3_local_test_with_coordinator(
+            0,
+            |party_idx| match party_idx {
+                0 => share0.clone(),
+                1 => share1.clone(),
+                2 => share2.clone(),
+                _ => unreachable!(),
+            },
+            || (),
+            move |program_io, mut io_ctx: IoContextPool<LocalRep3TestWorkerNet>| {
+                let words = Rep3ProgramIOInput::pack_advice_words(&program_io.trusted_advice);
+                let field_words = crate::poly::commitment::dory::r2f_b2a_many(&words, io_ctx.main())?;
+                let mut coeffs = vec![Rep3PrimeFieldShare::zero_share(); max_size];
+                for (i, share) in field_words.into_iter().enumerate() {
+                    coeffs[i + 1] = share;
+                }
+                let poly = Rep3MultilinearPolynomial::from_shared_coeffs(coeffs);
+                let mut preproc = edabits::preprocess_pool::<Fr, _>(
+                    &std::env::temp_dir().join(format!("provia-worker-advice-test-{}", io_ctx.party_idx())),
+                    [0, 0, 0, 0, 0],
+                    0,
+                    0,
+                    0,
+                    0,
+                    &mut io_ctx,
+                )?;
+                <DoryCommitmentScheme as crate::poly::commitment::Rep3CommitmentScheme<Fr, Blake2bTranscript>>::commit_rep3(
+                    &poly,
+                    &setup,
+                    false,
+                    &mut io_ctx,
+                    &mut preproc,
+                )
+            },
+            |(), _| Ok(()),
+        );
+
+        let combined = <DoryCommitmentScheme as provia_coordinator::poly::commitment::Rep3CommitmentScheme<
+            Fr,
+            Blake2bTranscript,
+        >>::combine_commitment_shares(&[&results[0].0, &results[1].0, &results[2].0]);
+
+        assert_eq!(combined, public_commitment);
     }
 }
