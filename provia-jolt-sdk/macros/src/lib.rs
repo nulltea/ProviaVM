@@ -559,30 +559,11 @@ impl MacroBuilder {
                 let mut initial_memory_state = vec![0u64; max_size];
 
                 let mut index = 1;
-                for chunk in trusted_advice_bytes.chunks(word_size) {
+                for chunk in trusted_advice_bytes.chunks(8) {
                     let mut word = [0u8; 8];
                     word[..chunk.len()].copy_from_slice(chunk);
                     initial_memory_state[index] = u64::from_le_bytes(word);
                     index += 1;
-                }
-
-                // Debug: hash polynomial coefficients as Fr elements (same method as worker)
-                {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let fr_coeffs: Vec<jolt::F> = initial_memory_state.iter().copied().map(jolt::F::from).collect();
-                    let mut h = DefaultHasher::new();
-                    fr_coeffs.len().hash(&mut h);
-                    for v in &fr_coeffs {
-                        format!("{:?}", v).hash(&mut h);
-                    }
-                    let poly_hash = h.finish();
-                    let nonzero = fr_coeffs.iter().filter(|v| **v != jolt::F::from(0u64)).count();
-                    eprintln!(
-                        "[HOST commit_trusted_advice] bytes_len={} max_size={} word_size={} poly_len={} nonzero_coeffs={} opened_poly_hash={:#018x}",
-                        trusted_advice_bytes.len(), max_size, word_size,
-                        fr_coeffs.len(), nonzero, poly_hash,
-                    );
                 }
 
                 DoryGlobals::initialize_context(1, max_size, DoryContext::TrustedAdvice, None);
@@ -591,14 +572,6 @@ impl MacroBuilder {
                 let poly = MultilinearPolynomial::<jolt::F>::from(initial_memory_state);
                 let trusted_advice_setup = jolt::PCS::setup_prover(max_size.next_power_of_two().ilog2() as usize);
                 let (commitment, hint) = jolt::PCS::commit(&poly, &trusted_advice_setup);
-                // Debug: hash the commitment GT value
-                {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut h = DefaultHasher::new();
-                    format!("{:?}", commitment).hash(&mut h);
-                    eprintln!("[HOST commit_trusted_advice] commitment_hash={:#018x}", h.finish());
-                }
                 DoryGlobals::set_context(DoryContext::Main);
 
                 (Some(commitment), Some(hint))

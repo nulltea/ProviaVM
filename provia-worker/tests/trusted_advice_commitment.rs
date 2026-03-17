@@ -42,7 +42,7 @@ fn trusted_advice_commitment_matches_public_commit() {
 
     let setup = <DoryCommitmentScheme as CommitmentScheme>::setup_prover(max_size.log_2());
     let mut public_coeffs = vec![0u64; max_size];
-    for (i, chunk) in trusted_advice.chunks(RAM_WORD_SIZE as usize).enumerate() {
+    for (i, chunk) in trusted_advice.chunks(8).enumerate() {
         let mut word = [0u8; 8];
         word[..chunk.len()].copy_from_slice(chunk);
         public_coeffs[i + 1] = u64::from_le_bytes(word);

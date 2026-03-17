@@ -19,10 +19,10 @@ fn prove_sha2_chain_fixture() -> TestFixture {
     let mut advice = postcard::to_stdvec(&[5u8; 32]).unwrap();
     advice.append(&mut postcard::to_stdvec(&1u32).unwrap());
 
-    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len) =
+    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len) =
         build_test_fixture_from_parts(&mut program, vec![], advice, vec![]);
 
-    prove_test_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+    prove_test_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len)
 }
 
 #[test]

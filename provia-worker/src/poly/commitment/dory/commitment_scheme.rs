@@ -690,16 +690,10 @@ fn commit_shared<ProofTranscript: Transcript, N: Rep3NetworkWorker>(
 )> {
     let sigma = DoryGlobals::get_num_columns().log_2();
     let num_columns = DoryGlobals::get_num_columns();
-    let context = DoryGlobals::current_context();
-    let (num_rows, _) = DoryGlobals::matrix_shape();
 
     let (num_vars, row_commitments_share) = match shared_poly {
         Rep3SharedPoly::Dense(poly) => {
             let nu = compute_nu(poly.get_num_vars(), sigma);
-            eprintln!(
-                "[WORKER commit_shared] context={:?} sigma={} nu={} num_columns={} num_rows={} poly_num_vars={} setup_g1_len={} setup_g2_len={}",
-                context, sigma, nu, num_columns, num_rows, poly.get_num_vars(), setup.g1_vec.len(), setup.g2_vec.len(),
-            );
             (poly.get_num_vars(), compute_row_commitment_shares_a(poly, setup, nu))
         }
         Rep3SharedPoly::OneHot(poly) => {
@@ -740,10 +734,6 @@ pub(super) fn rows_to_commitment(
 
     let _pairing_span = tracing::trace_span!("multi_pairing").entered();
     let g2_bases = &setup.g2_vec[..row_commitments_wrapped.len()];
-    // The global prepared-point cache holds generators from the *first* setup_prover
-    // call (the main trace). Advice setups produce independent generators, so using
-    // the cached points would pair row-commits against the wrong g2 bases.
-    // Use uncached `multi_pair` for advice; keep the fast cached path for main trace.
     let commitment_share = if DoryGlobals::current_context() == DoryContext::Main {
         <BN254 as PairingCurve>::multi_pair_g2_setup(&row_commitments_wrapped, g2_bases)
     } else {

@@ -43,7 +43,6 @@ impl Rep3JoltDag {
         PCS: CommitmentScheme<Field = F>,
     {
         use jolt_core::utils::math::Math;
-
         PCS::setup_prover(max_size.next_power_of_two().log_2())
     }
 
@@ -728,9 +727,9 @@ impl Rep3JoltDag {
         DoryGlobals::set_context(DoryContext::UntrustedAdvice);
 
         let commitment = state.untrusted_advice_commitment.as_ref().unwrap();
-        let pcs_setup = state.pcs_setup.expect("pcs_setup must be set for advice opening proof");
+        let advice_setup = Self::trusted_advice_setup::<F, PCS>(max_size);
         let (proof, _blinding) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::coordinate_prove(
-            pcs_setup,
+            &advice_setup,
             &mut state.transcript,
             network,
             &advice_opening_point,
@@ -783,9 +782,9 @@ impl Rep3JoltDag {
         DoryGlobals::set_context(DoryContext::TrustedAdvice);
 
         let commitment = state.trusted_advice_commitment.as_ref().unwrap();
-        let trusted_advice_setup = Self::trusted_advice_setup::<F, PCS>(max_size);
+        let advice_setup = Self::trusted_advice_setup::<F, PCS>(max_size);
         let (proof, _blinding) = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::coordinate_prove(
-            &trusted_advice_setup,
+            &advice_setup,
             &mut state.transcript,
             network,
             &advice_opening_point,
@@ -850,10 +849,7 @@ impl Rep3JoltDag {
         } else {
             eyre::ensure!(present.len() == 3, "expected trusted advice commitment shares from all 3 parties");
             let shares: Vec<&MaybeShared<PCS::Commitment>> = present.iter().collect();
-            eprintln!("[COORDINATOR receive_trusted_advice_commitment] combining {} shares", shares.len());
-            let combined = <PCS as Rep3CommitmentScheme<F, ProofTranscript>>::combine_commitment_shares(&shares);
-            eprintln!("[COORDINATOR receive_trusted_advice_commitment] combined: {:?}", combined);
-            Some(combined)
+            Some(<PCS as Rep3CommitmentScheme<F, ProofTranscript>>::combine_commitment_shares(&shares))
         };
         Ok(())
     }
