@@ -559,7 +559,7 @@ impl MacroBuilder {
                 let mut initial_memory_state = vec![0u64; max_size];
 
                 let mut index = 1;
-                for chunk in trusted_advice_bytes.chunks(8) {
+                for chunk in trusted_advice_bytes.chunks(word_size) {
                     let mut word = [0u8; 8];
                     word[..chunk.len()].copy_from_slice(chunk);
                     initial_memory_state[index] = u64::from_le_bytes(word);

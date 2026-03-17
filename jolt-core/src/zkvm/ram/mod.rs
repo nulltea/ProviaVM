@@ -73,34 +73,22 @@ pub fn build_initial_memory_state(ram_preprocessing: &RAMPreprocessing, program_
 
     // Copy trusted advice
     index = remap_address(memory_layout.trusted_advice_start, memory_layout).unwrap() as usize;
-    for chunk in program_io.trusted_advice.chunks(8) {
-        let mut word = [0u8; 8];
-        for (i, byte) in chunk.iter().enumerate() {
-            word[i] = *byte;
-        }
-        initial_memory_state[index] = u64::from_le_bytes(word);
+    for chunk in program_io.trusted_advice.chunks(RAM_WORD_SIZE as usize) {
+        initial_memory_state[index] = bytes_to_ram_word(chunk);
         index += 1;
     }
 
     // Copy untrusted advice
     index = remap_address(memory_layout.untrusted_advice_start, memory_layout).unwrap() as usize;
-    for chunk in program_io.untrusted_advice.chunks(8) {
-        let mut word = [0u8; 8];
-        for (i, byte) in chunk.iter().enumerate() {
-            word[i] = *byte;
-        }
-        initial_memory_state[index] = u64::from_le_bytes(word);
+    for chunk in program_io.untrusted_advice.chunks(RAM_WORD_SIZE as usize) {
+        initial_memory_state[index] = bytes_to_ram_word(chunk);
         index += 1;
     }
 
     // Copy inputs
     index = remap_address(memory_layout.input_start, memory_layout).unwrap() as usize;
-    for chunk in program_io.inputs.chunks(8) {
-        let mut word = [0u8; 8];
-        for (i, byte) in chunk.iter().enumerate() {
-            word[i] = *byte;
-        }
-        initial_memory_state[index] = u64::from_le_bytes(word);
+    for chunk in program_io.inputs.chunks(RAM_WORD_SIZE as usize) {
+        initial_memory_state[index] = bytes_to_ram_word(chunk);
         index += 1;
     }
 
