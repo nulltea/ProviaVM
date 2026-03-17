@@ -55,8 +55,8 @@ ark-bn254 = { version = "0.5.0", default-features = false, optional = true }
 
 provia-jolt-sdk-macros = { path = "./macros" }
 # Host-only dependencies
-jolt-core = { path = "../jolt-core", default-features = false, optional = true }
-tracer = { path = "../jolt-tracer", package = "jolt-tracer", default-features = false, optional = true }
+jolt-core = { path = "../jolt/jolt-core", default-features = false, optional = true }
+tracer = { path = "../jolt/jolt-tracer", package = "jolt-tracer", default-features = false, optional = true }
 rand = { version = "0.8.5", default-features = false, features = ["std_rng"], optional = true }
 provia-worker = { path = "../provia-worker", optional = true }
 rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }

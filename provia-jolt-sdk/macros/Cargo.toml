@@ -23,7 +23,7 @@ syn = { version = "1.0.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0.79"
 
-tracer = { path = "../../jolt-tracer", package = "jolt-tracer", features = ["std"] }
+tracer = { path = "../../jolt/jolt-tracer", package = "jolt-tracer", features = ["std"] }
 
 # These are needed to enable derive macros for tracer::common types when compiled
 # outside the main workspace (e.g., during guest builds)

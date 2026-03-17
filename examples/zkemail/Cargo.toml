@@ -23,8 +23,8 @@ rv64 = [
 provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
 guest = { package = "zkemail-guest", path = "./guest" }
 provia-worker = { path = "../../provia-worker" }
-jolt-core = { path = "../../jolt-core", features = ["host"] }
-tracer = { path = "../../jolt-tracer", package = "jolt-tracer", default-features = false }
+jolt-core = { path = "../../jolt/jolt-core", features = ["host"] }
+tracer = { path = "../../jolt/jolt-tracer", package = "jolt-tracer", default-features = false }
 ark-bn254 = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout", default-features = false, features = ["curve"] }
 ark-serialize = { version = "0.5.0", default-features = false }
 clap = { version = "4.5", features = ["derive"] }
@@ -41,8 +41,8 @@ mailparse = "0.14"
 trust-dns-resolver = "0.23"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 base64 = "0.21"
-jolt-inlines-sha2 = { path = "../../jolt-inlines/sha2", features = ["host"] }
-jolt-inlines-rsa = { path = "../../jolt-inlines/rsa", features = ["host"] }
+jolt-inlines-sha2 = { path = "../../jolt/jolt-inlines/sha2", features = ["host"] }
+jolt-inlines-rsa = { path = "../../jolt/jolt-inlines/rsa", features = ["host"] }
 num-bigint = "0.4"
 slog = "2.7"
 
@@ -53,7 +53,7 @@ zkemail-core = { path = "./core" }
 provia-worker = { path = "../../provia-worker", features = ["test-utils"] }
 provia-coordinator = { path = "../../provia-coordinator" }
 provia-jolt-sdk = { path = "../../provia-jolt-sdk", features = ["host"] }
-jolt-inlines-bigint = { path = "../../jolt-inlines/bigint", features = ["host"] }
+jolt-inlines-bigint = { path = "../../jolt/jolt-inlines/bigint", features = ["host"] }
 postcard = { version = "1.0.8", default-features = false, features = ["use-std"] }
 rsa = { version = "=0.9.6" }
 sha2 = { version = "0.10", features = ["oid"] }

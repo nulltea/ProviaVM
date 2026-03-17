@@ -14,5 +14,5 @@ lto = "fat"
 guest = []
 
 [dependencies]
-jolt-inlines-sha2 = { path = "../../../jolt-inlines/sha2" }
+jolt-inlines-sha2 = { path = "../../../jolt/jolt-inlines/sha2" }
 jolt = { package = "provia-jolt-sdk", path = "../../../provia-jolt-sdk" }

@@ -3,11 +3,11 @@ resolver = "2"
 members = [
     "provia-worker",
     "provia-coordinator",
-    "jolt-core",
-    "jolt-tracer",
-    "jolt-inlines/sha2",
-    "jolt-inlines/bigint",
-    "jolt-inlines/rsa",
+    "jolt/jolt-core",
+    "jolt/jolt-tracer",
+    "jolt/jolt-inlines/sha2",
+    "jolt/jolt-inlines/bigint",
+    "jolt/jolt-inlines/rsa",
     "mpc-net",
     "mpc-core",
 ]
@@ -135,8 +135,8 @@ fnv = { version = "1.0.7", default-features = false }
 object = { version = "0.36.7", features = ["build_core", "elf"], default-features = false }
 addr2line = "0.25.1"
 
-jolt-core = { path = "./jolt-core" }
-tracer = { path = "./jolt-tracer", package = "jolt-tracer", default-features = false }
+jolt-core = { path = "./jolt/jolt-core" }
+tracer = { path = "./jolt/jolt-tracer", package = "jolt-tracer", default-features = false }
 # jolt = { path = "/Users/timofey/repos/examples/jolt/jolt-sdk", package = "jolt-sdk" }
 
 [patch.crates-io]

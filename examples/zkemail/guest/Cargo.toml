@@ -16,8 +16,8 @@ rv64 = ["jolt-inlines-rsa/rv64", "jolt-inlines-sha2/rv64", "zkemail-core/rv64"]
 
 [dependencies]
 jolt = { package = "provia-jolt-sdk", path = "../../../provia-jolt-sdk" }
-jolt-inlines-sha2 = { path = "../../../jolt-inlines/sha2" }
-jolt-inlines-rsa = { path = "../../../jolt-inlines/rsa" }
+jolt-inlines-sha2 = { path = "../../../jolt/jolt-inlines/sha2" }
+jolt-inlines-rsa = { path = "../../../jolt/jolt-inlines/rsa" }
 zkemail-core = { path = "../core" }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 
