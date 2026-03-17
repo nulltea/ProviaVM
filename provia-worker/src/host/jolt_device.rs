@@ -1,3 +1,4 @@
+use jolt_core::common::constants::RAM_WORD_SIZE;
 use jolt_core::common::jolt_device::MemoryLayout;
 use mpc_core::protocols::rep3_ring::{self, Rep3RingShare};
 use serde::{Deserialize, Serialize};
@@ -48,7 +49,7 @@ impl Rep3ProgramIOInput {
     }
 
     pub fn pack_advice_words(advice: &[Rep3RingShare<u8>]) -> Vec<Rep3RingShare<u64>> {
-        advice.chunks(8).map(Rep3RingShare::<u64>::from_le_bytes).collect()
+        advice.chunks(RAM_WORD_SIZE as usize).map(Rep3RingShare::<u64>::from_le_bytes).collect()
     }
 }
 

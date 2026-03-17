@@ -36,6 +36,7 @@ JEMALLOC_PRESET=${JEMALLOC_PRESET:-default}
 EXTRA_FEATURES=${EXTRA_FEATURES:-}
 TRACE_SUFFIX="${NUM_ITERS}_${RAYON_THREADS}T_${MPC_QUIC_CONN_LANES}L_${NETWORK_FORKS}F"
 CLIENT_EXAMPLE=${CLIENT_EXAMPLE:-sha2-chain}
+DEV=${DEV:-0}
 
 # Ports — PORT_OFFSET shifts all port families for concurrent worktree runs
 PORT_OFFSET=${PORT_OFFSET:-0}
@@ -98,16 +99,18 @@ echo "Building binaries..."
 
 cd "$REPO_DIR"
 
-# cargo build --release \
-#   -p provia-coordinator --bin coordinator --features test-utils
+if [ "$DEV" = "1" ]; then
+  BUILD_PROFILE_ARGS=(--profile build-fast)
+  BUILD_BIN_DIR="$REPO_DIR/target/build-fast"
+else
+  BUILD_PROFILE_ARGS=(--release)
+  BUILD_BIN_DIR="$REPO_DIR/target/release"
+fi
 
-# cargo build --release \
-#   -p provia-worker --bin worker --features "$WORKER_FEATURES"
-
-cargo build --profile build-fast \
+cargo build "${BUILD_PROFILE_ARGS[@]}" \
   -p provia-coordinator --bin coordinator --features test-utils
 
-cargo build --profile build-fast \
+cargo build "${BUILD_PROFILE_ARGS[@]}" \
   -p provia-worker --bin worker --features "$WORKER_FEATURES"
 
 cargo build --release \
@@ -135,7 +138,7 @@ rm -f "$ARTIFACT_DIR"/config_*.toml "$ARTIFACT_DIR"/*.der
 # ── 3. Launch coordinator ────────────────────────────────────────────────────
 
 NUM_ITERS="$NUM_ITERS" MPC_QUIC_CONN_LANES="$MPC_QUIC_CONN_LANES" NETWORK_FORKS="$NETWORK_FORKS" TRACY=1 TRACY_PORT=$((TRACY_BASE_PORT - 1)) \
-"$REPO_DIR/target/release/coordinator" \
+"$BUILD_BIN_DIR/coordinator" \
   --config-file "$ARTIFACT_DIR/config_coordinator.toml" \
   --transport "$TRANSPORT" \
   -t "$TRACE_DIR" \
@@ -157,7 +160,7 @@ fi
 worker_pids=()
 for p in 0 1 2; do
   NUM_ITERS="$NUM_ITERS" MPC_QUIC_CONN_LANES="$MPC_QUIC_CONN_LANES" NETWORK_FORKS="$NETWORK_FORKS" TRACY=1 TRACY_PORT=$((TRACY_BASE_PORT + p)) \
-  "$REPO_DIR/target/release/worker" \
+  "$BUILD_BIN_DIR/worker" \
     -c "$ARTIFACT_DIR/config_worker0_${p}.toml" \
     -t "$TRACE_DIR" \
     --network-forks "$NETWORK_FORKS" \

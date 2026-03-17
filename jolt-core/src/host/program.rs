@@ -201,7 +201,6 @@ impl Program {
             let arg_refs: Vec<&str> = args.iter().map(|arg| arg.as_str()).collect();
 
             let cmd_line = compose_command_line("cargo", &envs, &arg_refs);
-            info!("\n{cmd_line}");
 
             let output = Command::new("cargo")
                 .envs(envs.clone())
