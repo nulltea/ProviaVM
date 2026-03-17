@@ -25,7 +25,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
-use zkpassport_core::{PassportInput, PassportOutput};
+use zkpassport_core::{PassportInput, PassportInputRef, PassportOutput};
 
 use provia_jolt_sdk::*;
 
@@ -110,6 +110,10 @@ fn witness_seed_for_profile(witness: &Witness2048) -> eyre::Result<[u8; 32]> {
     Ok(witness_seed_from_commitment_bytes(&witness_bytes))
 }
 
+fn passport_input_ref(input: &PassportInput) -> eyre::Result<PassportInputRef<'_>> {
+    input.as_ref().map_err(eyre::Report::msg)
+}
+
 fn witness_seed_from_proof_commitment(commitment: &<PCS as CommitmentScheme>::Commitment) -> eyre::Result<[u8; 32]> {
     witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
 }
@@ -161,7 +165,7 @@ fn main() -> eyre::Result<()> {
     input.rsa_challenge_seed = witness_seed_for_profile(&witness)?;
 
     // Native execution
-    let native_output: PassportOutput = verify_passport(TrustedAdvice::from(witness), input.clone());
+    let native_output: PassportOutput = verify_passport(TrustedAdvice::from(witness), passport_input_ref(&input)?);
     info!(?native_output, "native verification result");
 
     if args.native_only {
@@ -169,7 +173,7 @@ fn main() -> eyre::Result<()> {
         println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
         println!("mont_square_2048 trace length: {}", mont_square_2048_trace_len());
         println!("modpow_65537 trace length: {}", modpow_65537_trace_len());
-        let summary = analyze_verify_passport(TrustedAdvice::from(witness), input.clone());
+        let summary = analyze_verify_passport(TrustedAdvice::from(witness), passport_input_ref(&input)?);
         let raw_trace_len = summary.trace_len();
         let padded_trace_len = raw_trace_len.next_power_of_two();
         println!("verify_passport raw trace length: {}", raw_trace_len);
@@ -214,8 +218,8 @@ fn main() -> eyre::Result<()> {
     info!("delegating proof...");
     let program_id = "zkpassport-verify";
     let trusted_advice_seed = input.rsa_challenge_seed;
-    let witness_bytes_seed = witness_seed_for_profile(&witness)?;
-    let (output, proof, program_io) = delegate(&mut client, TrustedAdvice::from(witness), input, program_id)?;
+    let input_ref = passport_input_ref(&input)?;
+    let (output, proof, program_io) = delegate(&mut client, TrustedAdvice::from(witness), input_ref, program_id)?;
     info!(trace_length = proof.trace_length, "proof received");
 
     let proof_commitment = proof
@@ -227,33 +231,16 @@ fn main() -> eyre::Result<()> {
         build_preprocessing_for_trace_len(proof.trace_length, target_dir)?;
     let (actual_commitment, _actual_hint) =
         commit_trusted_advice_verify_passport(TrustedAdvice::from(witness), &actual_prover_preprocessing);
-    let actual_seed = actual_commitment.as_ref().map(witness_seed_from_proof_commitment).transpose()?;
-    eprintln!(
-        "trusted advice seed comparison | witness_bytes_seed={:?} trusted_advice_seed={:?} actual_seed={:?} proof_seed={:?}",
-        witness_bytes_seed, trusted_advice_seed, actual_seed, proof_seed
-    );
+    let verifier = build_verifier_verify_passport(verifier_preprocessing);
+
     if proof_seed != trusted_advice_seed {
         eprintln!("warning: RSA challenge seed mismatch for trusted advice commitment");
     }
 
     info!("verifying proof...");
-    {
-        // The macro-generated verifier passes None for trusted_advice_commitment,
-        // so call Jolt::verify directly with the locally-computed commitment.
-        let T = proof.trace_length.next_power_of_two();
-        DoryGlobals::initialize(jolt_core::zkvm::witness::DTH_ROOT_OF_K, T);
-        let mut io_device = JoltDevice {
-            inputs: vec![],
-            outputs: vec![],
-            panic: false,
-            memory_layout: verifier_preprocessing.shared.memory_layout.clone(),
-            trusted_advice: vec![],
-            untrusted_advice: vec![],
-        };
-        io_device.outputs.append(&mut provia_jolt_sdk::postcard::to_stdvec(&output).unwrap());
-        io_device.panic = program_io.panic;
-        JoltRVArch::verify(&verifier_preprocessing, proof, io_device, actual_commitment, None)
-            .map_err(|e| eyre::eyre!("proof verification failed: {e}"))?;
+    let is_valid = verifier(output.clone(), program_io.panic, proof, actual_commitment);
+    if !is_valid {
+        return Err(eyre::eyre!("proof verification failed"));
     }
     if output != native_output {
         return Err(eyre::eyre!("output mismatch with native execution"));
@@ -276,7 +263,7 @@ mod tests {
         let witness = build_witness(&input.ds_pubkey_der, &input.signature).unwrap();
         let mut input = input.clone();
         input.rsa_challenge_seed = witness_seed_for_profile(&witness).unwrap();
-        verify_passport(TrustedAdvice::from(witness), input)
+        verify_passport(TrustedAdvice::from(witness), passport_input_ref(&input).unwrap())
     }
 
     #[test]

@@ -98,10 +98,16 @@ echo "Building binaries..."
 
 cd "$REPO_DIR"
 
-cargo build --release \
+# cargo build --release \
+#   -p provia-coordinator --bin coordinator --features test-utils
+
+# cargo build --release \
+#   -p provia-worker --bin worker --features "$WORKER_FEATURES"
+
+cargo build --profile build-fast \
   -p provia-coordinator --bin coordinator --features test-utils
 
-cargo build --release \
+cargo build --profile build-fast \
   -p provia-worker --bin worker --features "$WORKER_FEATURES"
 
 cargo build --release \

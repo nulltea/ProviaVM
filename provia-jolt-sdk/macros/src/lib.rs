@@ -196,14 +196,37 @@ impl MacroBuilder {
             Ident::new(&format!("build_verifier_{fn_name}"), fn_name.span());
         let imports = self.make_imports();
         let proof_type = self.make_proof_type();
-        let input_types = self.pub_func_args.iter().map(|(_, ty)| ty);
         let output_type: Type = match &self.func.sig.output {
             ReturnType::Default => syn::parse_quote!(()),
             ReturnType::Type(_, ty) => syn::parse_quote!((#ty)),
         };
-        let public_inputs = self.pub_func_args.iter().map(|(name, ty)| {
-            quote! { #name: #ty }
-        });
+        let mut verifier_arg_types: Vec<TokenStream2> = self
+            .pub_func_args
+            .iter()
+            .map(|(_, ty)| quote! { #ty })
+            .collect();
+        verifier_arg_types.push(quote! { #output_type });
+        verifier_arg_types.push(quote! { bool });
+        verifier_arg_types.push(quote! { #proof_type });
+
+        let mut verifier_args: Vec<TokenStream2> = self
+            .pub_func_args
+            .iter()
+            .map(|(name, ty)| quote! { #name: #ty })
+            .collect();
+        verifier_args.push(quote! { output: #output_type });
+        verifier_args.push(quote! { panic: bool });
+        verifier_args.push(quote! { proof: #proof_type });
+
+        let trusted_commitment_arg = if self.trusted_func_args.is_empty() {
+            quote! { None }
+        } else {
+            verifier_arg_types.push(quote! { Option<<jolt::PCS as jolt::CommitmentScheme>::Commitment> });
+            verifier_args.push(
+                quote! { trusted_advice_commitment: Option<<jolt::PCS as jolt::CommitmentScheme>::Commitment> },
+            );
+            quote! { trusted_advice_commitment }
+        };
         let set_program_args = self.pub_func_args.iter().map(|(name, _)| {
             quote! {
                 io_device.inputs.append(&mut jolt::postcard::to_stdvec(&#name).unwrap())
@@ -214,12 +237,12 @@ impl MacroBuilder {
             #[cfg(all(not(target_arch = "wasm32"), not(feature = "guest")))]
             pub fn #build_verifier_fn_name(
                 preprocessing: jolt::JoltVerifierPreprocessing<jolt::F, jolt::PCS>,
-            ) -> impl Fn(#(#input_types,)* #output_type, bool, #proof_type) -> bool + Sync + Send
+            ) -> impl Fn(#(#verifier_arg_types),*) -> bool + Sync + Send
             {
                 #imports
                 let preprocessing = std::sync::Arc::new(preprocessing);
 
-                move |#(#public_inputs,)* output, panic, proof: #proof_type| {
+                move |#(#verifier_args),*| {
                     let preprocessing = (*preprocessing).clone();
                     let mut io_device = JoltDevice {
                         inputs: vec![],
@@ -234,7 +257,7 @@ impl MacroBuilder {
                     io_device.outputs.append(&mut jolt::postcard::to_stdvec(&output).unwrap());
                     io_device.panic = panic;
 
-                    let result = JoltRVArch::verify(&preprocessing, proof, io_device, None, None);
+                    let result = JoltRVArch::verify(&preprocessing, proof, io_device, #trusted_commitment_arg, None);
 
                     result.is_ok()
                 }

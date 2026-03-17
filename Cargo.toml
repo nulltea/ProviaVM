@@ -155,6 +155,13 @@ debug = false
 
 [profile.release]
 debug = true
+lto = "fat"
+
+[profile.build-fast]
+inherits = "release"
+incremental = true
+lto = "off"
+overflow-checks = true
 
 [profile.test]
 opt-level = 3

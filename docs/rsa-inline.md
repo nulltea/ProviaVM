@@ -68,13 +68,10 @@ zkemail now verifies RSA using a trusted-advice witness in `jolt-inlines/rsa::wi
 
 `Witness2048` contains:
 
-- `modulus: Bytes2048`
-- `signature: Bytes2048`
 - `steps: [Step2048; 17]`
 
 Each `Step2048` contains:
 
-- `op: StepOp`
 - `quotient_residues: [u32; 4]`
 - `remainder_residues: [u32; 4]`
 - `remainder_limbs: Limbs2048`

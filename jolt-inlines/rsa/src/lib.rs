@@ -18,7 +18,6 @@ pub use verify::verify_pkcs1v15_sha256_with_witness;
 pub use witness::{
     Bytes2048,
     Step2048,
-    StepOp,
     Witness2048,
 };
 #[cfg(feature = "host")]

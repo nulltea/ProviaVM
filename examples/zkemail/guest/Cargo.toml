@@ -5,6 +5,11 @@ edition = "2021"
 
 [workspace]
 
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+
 [features]
 guest = []
 rv64 = ["jolt-inlines-rsa/rv64", "jolt-inlines-sha2/rv64", "zkemail-core/rv64"]

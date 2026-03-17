@@ -3,7 +3,7 @@
 use crate::modpow::modpow_65537;
 use crate::witness::{
     accumulate_residue_error, advance_seeded_weight_state, limbs_lt, sampled_step_checks, seeded_weight_state_init,
-    seeded_weights, Bytes2048, Residues2048, StepOp, Witness2048,
+    seeded_weights, Bytes2048, Residues2048, Witness2048,
 };
 use crate::{Limb, LIMBS_2048, LIMB_BYTES};
 
@@ -34,12 +34,8 @@ pub fn verify_pkcs1v15_sha256_with_witness(
     message_hash: &[u8; 32],
 ) -> bool {
     let modulus_bytes = Bytes2048::from(limbs_to_bytes_be_2048(modulus));
-    if witness.modulus != modulus_bytes || witness.signature != *signature {
-        return false;
-    }
-
-    let modulus_residues = Residues2048::from_bytes(&witness.modulus);
-    let signature_residues = Residues2048::from_bytes(&witness.signature);
+    let modulus_residues = Residues2048::from_bytes(&modulus_bytes);
+    let signature_residues = Residues2048::from_bytes(signature);
     let mut current_residues = signature_residues;
     let mut aggregated_error = [0u32; 4];
     let mut seeded_weight_state = seeded_weight_state_init(challenge_seed);
@@ -47,8 +43,7 @@ pub fn verify_pkcs1v15_sha256_with_witness(
     let modulus_limbs = bytes_be_to_limbs_2048(modulus_bytes.as_array());
 
     for (step_idx, step) in witness.steps.iter().enumerate() {
-        let expected_op = if step_idx < 16 { StepOp::Square } else { StepOp::MulBase };
-        if step.op != expected_op || !limbs_lt(&step.remainder_limbs.0, &modulus_limbs) {
+        if !limbs_lt(&step.remainder_limbs.0, &modulus_limbs) {
             return false;
         }
 

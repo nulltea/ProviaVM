@@ -160,7 +160,8 @@ fn build_zkpassport_fixture() -> (PassportInput, Witness2048) {
 fn prove_zkpassport_fixture() -> TestFixture {
     let mut program = configure_program();
     let (input, witness) = build_zkpassport_fixture();
-    let untrusted_advice = postcard::to_stdvec(&input).unwrap();
+    let input_ref = input.as_ref().unwrap();
+    let untrusted_advice = postcard::to_stdvec(&input_ref).unwrap();
     let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
 
     let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len) =
@@ -183,7 +184,8 @@ fn trace_only() {
     let mut program = configure_program();
 
     let (input, witness) = build_zkpassport_fixture();
-    let inputs = postcard::to_stdvec(&input).unwrap();
+    let input_ref = input.as_ref().unwrap();
+    let inputs = postcard::to_stdvec(&input_ref).unwrap();
     let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
     eprintln!("Serialized input size: {} bytes", inputs.len());
     eprintln!("Serialized trusted advice size: {} bytes", trusted_advice.len());
@@ -200,7 +202,8 @@ fn trusted_advice_trace_bytes_match_local_serialization() {
     let mut program = configure_program();
 
     let (input, witness) = build_zkpassport_fixture();
-    let input_bytes = postcard::to_stdvec(&input).unwrap();
+    let input_ref = input.as_ref().unwrap();
+    let input_bytes = postcard::to_stdvec(&input_ref).unwrap();
     let trusted_advice_bytes = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
     let mut rng = ChaCha12Rng::seed_from_u64(0);
     let (_bytecode, _memory_init, program_io, _raw_trace_len, _shares) =

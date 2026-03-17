@@ -16,3 +16,8 @@ RUSTFLAGS="-A warnings" cargo run --manifest-path examples/zkemail/Cargo.toml --
   --from-domain gmail.com \
   --profile-rsa
 ```
+
+## Test
+```
+cargo test --manifest-path examples/zkemail/Cargo.toml --test prove_correct -- --nocapture
+```

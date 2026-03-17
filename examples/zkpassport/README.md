@@ -15,3 +15,8 @@ RUSTFLAGS="-A warnings" cargo run --manifest-path examples/zkpassport/Cargo.toml
   --generate \
   --native-only
 ```
+
+## Test
+```
+cargo test --manifest-path examples/zkpassport/Cargo.toml --test prove_correct -- --nocapture
+```

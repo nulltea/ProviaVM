@@ -69,3 +69,5 @@ allocative = { git = "https://github.com/facebookexperimental/allocative", rev =
 
 [profile.release]
 debug = true
+codegen-units = 1
+lto = "fat"

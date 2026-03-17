@@ -68,13 +68,22 @@ fn build_zkemail_fixture() -> (DKIMInput, Witness2048) {
 fn prove_zkemail_fixture() -> TestFixture {
     let mut program = configure_program();
     let (input, witness) = build_zkemail_fixture();
-    let untrusted_advice = postcard::to_stdvec(&input).unwrap();
+    let input_ref = input.as_ref().unwrap();
+    let untrusted_advice = postcard::to_stdvec(&input_ref).unwrap();
     let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(witness)).unwrap();
 
-    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len) =
+    let (shares, preprocessing, verifier_preprocessing, io_device, ram_k, raw_trace_len, padded_len) =
         build_test_fixture_from_parts(&mut program, vec![], untrusted_advice, trusted_advice);
 
-    prove_test_fixture(shares, preprocessing, verifier_preprocessing, io_device, ram_k, padded_len)
+    prove_test_fixture(
+        shares,
+        preprocessing,
+        verifier_preprocessing,
+        io_device,
+        ram_k,
+        raw_trace_len,
+        padded_len,
+    )
 }
 
 #[test]
@@ -83,7 +92,8 @@ fn trace_only() {
     let mut program = configure_program();
 
     let (input, prepared) = build_zkemail_fixture();
-    let inputs = postcard::to_stdvec(&input).unwrap();
+    let input_ref = input.as_ref().unwrap();
+    let inputs = postcard::to_stdvec(&input_ref).unwrap();
     let trusted_advice = postcard::to_stdvec(&TrustedAdvice::from(prepared)).unwrap();
     eprintln!("Serialized input size: {} bytes", inputs.len());
     eprintln!("Serialized trusted advice size: {} bytes", trusted_advice.len());

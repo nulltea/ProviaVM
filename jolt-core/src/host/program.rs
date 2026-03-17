@@ -128,7 +128,7 @@ impl Program {
 
             rust_flags.extend_from_slice(&[
                 "-C".to_string(),
-                "opt-level=z".to_string(),
+                "llvm-args=-enable-machine-outliner=never".to_string(),
                 "--cfg".to_string(),
                 "getrandom_backend=\"custom\"".to_string(),
                 "--cfg".to_string(),

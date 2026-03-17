@@ -20,7 +20,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 use tracing_subscriber::{EnvFilter, Layer};
 use trust_dns_resolver::TokioAsyncResolver;
-use zkemail_core::{DKIMInput, DKIMOutput, Witness2048};
+use zkemail_core::{DKIMInput, DKIMInputRef, DKIMOutput, Witness2048};
 
 use provia_jolt_sdk::*;
 use jolt_inlines_rsa::{
@@ -168,17 +168,18 @@ fn trusted_advice_witness_seed_from_proof_commitment(
     witness_seed_from_commitment(commitment).context("serializing trusted advice commitment")
 }
 
-fn build_verifier_preprocessing_for_trace_len(
+fn build_preprocessing_for_trace_len(
     trace_len: usize,
     target_dir: &str,
-) -> JoltVerifierPreprocessing<provia_jolt_sdk::F, PCS> {
+) -> (JoltProverPreprocessing<provia_jolt_sdk::F, PCS>, JoltVerifierPreprocessing<provia_jolt_sdk::F, PCS>) {
     let mut program = compile_verify_dkim(target_dir);
     let (bytecode, memory_init, program_size) = program.decode();
     let mut memory_config = memory_config_verify_dkim();
     memory_config.program_size = Some(program_size);
     let memory_layout = MemoryLayout::new(&memory_config);
     let prover_preprocessing = JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, trace_len);
-    JoltVerifierPreprocessing::from(&prover_preprocessing)
+    let verifier_preprocessing = JoltVerifierPreprocessing::from(&prover_preprocessing);
+    (prover_preprocessing, verifier_preprocessing)
 }
 
 fn validate_trusted_advice_witness(
@@ -194,8 +195,12 @@ fn validate_trusted_advice_witness(
     Ok(())
 }
 
+fn dkim_input_ref(input: &DKIMInput) -> eyre::Result<DKIMInputRef<'_>> {
+    input.as_ref().map_err(eyre::Report::msg)
+}
+
 fn print_profile_summary(input: DKIMInput, witness: Witness2048) {
-    let summary = analyze_verify_dkim(TrustedAdvice::from(witness), input);
+    let summary = analyze_verify_dkim(TrustedAdvice::from(witness), dkim_input_ref(&input).unwrap());
     println!("arch: {}", if cfg!(feature = "rv64") { "rv64" } else { "rv32" });
     println!("mont_mul_2048 trace length: {}", mont_mul_2048_trace_len());
     println!("mont_square_2048 trace length: {}", mont_square_2048_trace_len());
@@ -356,7 +361,7 @@ fn prove_and_verify_dkim(
 
     let worker_addrs = parse_worker_addresses(&args.config_path)?;
     let delegate = build_delegate_verify_dkim(compile_verify_dkim(target_dir));
-    let native_output: DKIMOutput = verify_dkim(TrustedAdvice::from(trusted_advice_witness), dkim_input.clone());
+    let native_output: DKIMOutput = verify_dkim(TrustedAdvice::from(trusted_advice_witness), dkim_input_ref(&dkim_input)?);
 
     info!(?native_output, "native DKIM verification result");
     info!(?worker_addrs, "connecting to workers");
@@ -365,29 +370,20 @@ fn prove_and_verify_dkim(
 
     info!("delegating proof...");
     let program_id = "zkemail-verify";
-    let trusted_advice_seed = dkim_input.rsa_challenge_seed;
-    let witness_bytes_seed = trusted_advice_witness_seed_for_profile(&trusted_advice_witness)?;
+    let dkim_input_ref = dkim_input_ref(&dkim_input)?;
     let (proof_output, proof, program_io) =
-        delegate(&mut client, TrustedAdvice::from(trusted_advice_witness), dkim_input, program_id)?;
+        delegate(&mut client, TrustedAdvice::from(trusted_advice_witness), dkim_input_ref, program_id)?;
     info!(trace_length = proof.trace_length, "proof received");
 
-    let proof_commitment = proof
-        .trusted_advice_commitment
-        .as_ref()
-        .ok_or_else(|| eyre::eyre!("proof missing trusted advice commitment"))?;
-    let proof_seed = trusted_advice_witness_seed_from_proof_commitment(proof_commitment)?;
-    eprintln!(
-        "trusted advice seed comparison | witness_bytes_seed={:?} trusted_advice_seed={:?} proof_seed={:?}",
-        witness_bytes_seed, trusted_advice_seed, proof_seed
-    );
-    if proof_seed != trusted_advice_seed {
-        eprintln!("warning: RSA challenge seed mismatch for trusted advice commitment");
-    }
-
-    let verifier = build_verifier_verify_dkim(build_verifier_preprocessing_for_trace_len(proof.trace_length, target_dir));
+    let (actual_prover_preprocessing, verifier_preprocessing) =
+        build_preprocessing_for_trace_len(proof.trace_length, target_dir);
+    let (actual_commitment, _actual_hint) =
+        commit_trusted_advice_verify_dkim(TrustedAdvice::from(trusted_advice_witness), &actual_prover_preprocessing);
+    let verifier = build_verifier_verify_dkim(verifier_preprocessing);
 
     info!("verifying proof...");
-    if !verifier(proof_output.clone(), program_io.panic, proof) {
+    let is_valid = verifier(proof_output.clone(), program_io.panic, proof, actual_commitment);
+    if !is_valid {
         return Err(eyre::eyre!("proof verification failed"));
     }
     if proof_output != native_output {

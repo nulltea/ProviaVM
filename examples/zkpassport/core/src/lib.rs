@@ -1,9 +1,12 @@
 #![no_std]
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
-pub use jolt_inlines_rsa::{Bytes2048, Step2048, StepOp, Witness2048};
-use serde::{Deserialize, Serialize};
+use core::fmt;
+pub use jolt_inlines_rsa::{Bytes2048, Step2048, Witness2048};
+use serde::de::{Error as DeError, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // ---------------------------------------------------------------------------
 // Core I/O types
@@ -28,6 +31,161 @@ pub struct PassportInput {
     pub rsa_challenge_seed: [u8; 32],
     /// Today's date as YYYYMMDD integer (e.g. 20260315).
     pub today_yyyymmdd: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PassportInputRef<'a> {
+    pub dg1: &'a [u8],
+    pub encap_content: &'a [u8],
+    pub signed_attrs_der: &'a [u8],
+    pub signature: Bytes2048,
+    pub ds_pubkey_der: &'a [u8],
+    pub rsa_challenge_seed: [u8; 32],
+    pub today_yyyymmdd: u32,
+}
+
+const PASSPORT_INPUT_REF_HEADER_LEN: usize = 5 * 4 + 32 + 256;
+
+impl<'a> PassportInputRef<'a> {
+    fn pack_payload(&self) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(
+            PASSPORT_INPUT_REF_HEADER_LEN
+                + self.dg1.len()
+                + self.encap_content.len()
+                + self.signed_attrs_der.len()
+                + self.ds_pubkey_der.len(),
+        );
+        payload.extend_from_slice(&(self.dg1.len() as u32).to_le_bytes());
+        payload.extend_from_slice(&(self.encap_content.len() as u32).to_le_bytes());
+        payload.extend_from_slice(&(self.signed_attrs_der.len() as u32).to_le_bytes());
+        payload.extend_from_slice(&(self.ds_pubkey_der.len() as u32).to_le_bytes());
+        payload.extend_from_slice(&self.today_yyyymmdd.to_le_bytes());
+        payload.extend_from_slice(&self.rsa_challenge_seed);
+        payload.extend_from_slice(&self.signature.0);
+        payload.extend_from_slice(self.dg1);
+        payload.extend_from_slice(self.encap_content);
+        payload.extend_from_slice(self.signed_attrs_der);
+        payload.extend_from_slice(self.ds_pubkey_der);
+        payload
+    }
+
+    fn parse_packed(bytes: &'a [u8]) -> Result<Self, &'static str> {
+        if bytes.len() < PASSPORT_INPUT_REF_HEADER_LEN {
+            return Err("packed passport input too short");
+        }
+
+        let dg1_len = read_len(bytes, 0)?;
+        let encap_content_len = read_len(bytes, 4)?;
+        let signed_attrs_der_len = read_len(bytes, 8)?;
+        let ds_pubkey_der_len = read_len(bytes, 12)?;
+        let today_yyyymmdd = read_len(bytes, 16)? as u32;
+
+        let mut rsa_challenge_seed = [0u8; 32];
+        rsa_challenge_seed.copy_from_slice(&bytes[20..52]);
+
+        let mut signature = [0u8; 256];
+        signature.copy_from_slice(&bytes[52..308]);
+
+        let mut cursor = PASSPORT_INPUT_REF_HEADER_LEN;
+        let dg1 = take_packed_slice(bytes, &mut cursor, dg1_len)?;
+        let encap_content = take_packed_slice(bytes, &mut cursor, encap_content_len)?;
+        let signed_attrs_der = take_packed_slice(bytes, &mut cursor, signed_attrs_der_len)?;
+        let ds_pubkey_der = take_packed_slice(bytes, &mut cursor, ds_pubkey_der_len)?;
+
+        if cursor != bytes.len() {
+            return Err("packed passport input has trailing bytes");
+        }
+
+        Ok(Self {
+            dg1,
+            encap_content,
+            signed_attrs_der,
+            signature: Bytes2048(signature),
+            ds_pubkey_der,
+            rsa_challenge_seed,
+            today_yyyymmdd,
+        })
+    }
+}
+
+impl Serialize for PassportInputRef<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.pack_payload())
+    }
+}
+
+impl<'de> Deserialize<'de> for PassportInputRef<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PassportInputRefVisitor;
+
+        impl<'de> Visitor<'de> for PassportInputRefVisitor {
+            type Value = PassportInputRef<'de>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("packed passport input bytes")
+            }
+
+            fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                PassportInputRef::parse_packed(value).map_err(E::custom)
+            }
+
+            fn visit_bytes<E>(self, _value: &[u8]) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                let leaked: &'de [u8] = Box::leak(_value.to_vec().into_boxed_slice());
+                PassportInputRef::parse_packed(leaked).map_err(E::custom)
+            }
+
+            fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                let leaked: &'de [u8] = Box::leak(value.into_boxed_slice());
+                PassportInputRef::parse_packed(leaked).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_bytes(PassportInputRefVisitor)
+    }
+}
+
+impl PassportInput {
+    pub fn as_ref(&self) -> Result<PassportInputRef<'_>, &'static str> {
+        let signature: [u8; 256] = self.signature.as_slice().try_into().map_err(|_| "signature must be 256 bytes")?;
+        Ok(PassportInputRef {
+            dg1: &self.dg1,
+            encap_content: &self.encap_content,
+            signed_attrs_der: &self.signed_attrs_der,
+            signature: Bytes2048(signature),
+            ds_pubkey_der: &self.ds_pubkey_der,
+            rsa_challenge_seed: self.rsa_challenge_seed,
+            today_yyyymmdd: self.today_yyyymmdd,
+        })
+    }
+}
+
+fn read_len(bytes: &[u8], start: usize) -> Result<usize, &'static str> {
+    let end = start.checked_add(4).ok_or("packed input length overflow")?;
+    let raw = bytes.get(start..end).ok_or("packed input header truncated")?;
+    let len = u32::from_le_bytes(raw.try_into().unwrap());
+    Ok(len as usize)
+}
+
+fn take_packed_slice<'a>(bytes: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [u8], &'static str> {
+    let end = cursor.checked_add(len).ok_or("packed input length overflow")?;
+    let slice = bytes.get(*cursor..end).ok_or("packed input truncated")?;
+    *cursor = end;
+    Ok(slice)
 }
 
 /// Public output committed by the guest proof.
@@ -84,13 +242,8 @@ pub fn parse_td3_mrz(mrz: &[u8]) -> Option<ParsedMrz> {
     }
     let issuing_country: [u8; 3] = [mrz[2], mrz[3], mrz[4]];
     let line2 = &mrz[44..];
-    let dob_yymmdd: [u8; 6] = [
-        line2[13], line2[14], line2[15], line2[16], line2[17], line2[18],
-    ];
-    Some(ParsedMrz {
-        issuing_country,
-        dob_yymmdd,
-    })
+    let dob_yymmdd: [u8; 6] = [line2[13], line2[14], line2[15], line2[16], line2[17], line2[18]];
+    Some(ParsedMrz { issuing_country, dob_yymmdd })
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +253,11 @@ pub fn parse_td3_mrz(mrz: &[u8]) -> Option<ParsedMrz> {
 /// Expand a 2-digit MRZ year to a 4-digit year.
 /// ICAO rule for DOB: YY > 50 → 19YY, else 20YY.
 fn expand_mrz_year(yy: u8) -> u32 {
-    if yy > 50 { 1900 + yy as u32 } else { 2000 + yy as u32 }
+    if yy > 50 {
+        1900 + yy as u32
+    } else {
+        2000 + yy as u32
+    }
 }
 
 /// Parse 2 ASCII digit chars into a u8 (e.g. b"74" → 74).
@@ -208,6 +365,7 @@ fn read_der_length(data: &[u8]) -> Option<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     extern crate std;
+
     use super::*;
 
     #[test]
@@ -292,5 +450,111 @@ mod tests {
         assert_eq!(ascii2_to_u8(b'7', b'4'), Some(74));
         assert_eq!(ascii2_to_u8(b'9', b'9'), Some(99));
         assert_eq!(ascii2_to_u8(b'a', b'0'), None);
+    }
+
+    #[test]
+    fn passport_input_as_ref_normalizes_signature() {
+        let input = PassportInput {
+            dg1: b"dg1".to_vec(),
+            encap_content: b"encap".to_vec(),
+            signed_attrs_der: b"attrs".to_vec(),
+            signature: vec![0x44; 256],
+            ds_pubkey_der: b"\x30\x82\x01".to_vec(),
+            rsa_challenge_seed: [5u8; 32],
+            today_yyyymmdd: 20260317,
+        };
+
+        let input_ref = input.as_ref().unwrap();
+        assert_eq!(input_ref.dg1, input.dg1.as_slice());
+        assert_eq!(input_ref.encap_content, input.encap_content.as_slice());
+        assert_eq!(input_ref.signed_attrs_der, input.signed_attrs_der.as_slice());
+        assert_eq!(input_ref.signature.0, [0x44; 256]);
+        assert_eq!(input_ref.ds_pubkey_der, input.ds_pubkey_der.as_slice());
+        assert_eq!(input_ref.rsa_challenge_seed, input.rsa_challenge_seed);
+        assert_eq!(input_ref.today_yyyymmdd, input.today_yyyymmdd);
+    }
+
+    #[test]
+    fn passport_input_ref_postcard_roundtrip() {
+        let input = PassportInputRef {
+            dg1: b"dg1",
+            encap_content: b"encap",
+            signed_attrs_der: b"attrs",
+            signature: Bytes2048([0x22; 256]),
+            ds_pubkey_der: b"\x30\x82\x01",
+            rsa_challenge_seed: [3u8; 32],
+            today_yyyymmdd: 20260317,
+        };
+
+        let encoded = postcard::to_allocvec(&input).unwrap();
+        let decoded: PassportInputRef<'_> = postcard::from_bytes(&encoded).unwrap();
+        assert_eq!(decoded.dg1, input.dg1);
+        assert_eq!(decoded.encap_content, input.encap_content);
+        assert_eq!(decoded.signed_attrs_der, input.signed_attrs_der);
+        assert_eq!(decoded.signature, input.signature);
+        assert_eq!(decoded.ds_pubkey_der, input.ds_pubkey_der);
+        assert_eq!(decoded.rsa_challenge_seed, input.rsa_challenge_seed);
+        assert_eq!(decoded.today_yyyymmdd, input.today_yyyymmdd);
+    }
+
+    #[test]
+    fn passport_input_as_ref_rejects_short_signature() {
+        let input = PassportInput {
+            dg1: Vec::new(),
+            encap_content: Vec::new(),
+            signed_attrs_der: Vec::new(),
+            signature: vec![0x11; 255],
+            ds_pubkey_der: Vec::new(),
+            rsa_challenge_seed: [0u8; 32],
+            today_yyyymmdd: 20260317,
+        };
+        assert!(input.as_ref().is_err());
+    }
+
+    #[test]
+    fn passport_input_ref_rejects_truncated_payload() {
+        let input = PassportInputRef {
+            dg1: b"dg1",
+            encap_content: b"encap",
+            signed_attrs_der: b"attrs",
+            signature: Bytes2048([0x22; 256]),
+            ds_pubkey_der: b"\x30\x82\x01",
+            rsa_challenge_seed: [3u8; 32],
+            today_yyyymmdd: 20260317,
+        };
+        let mut encoded = postcard::to_allocvec(&input).unwrap();
+        encoded.pop();
+        assert!(postcard::from_bytes::<PassportInputRef<'_>>(&encoded).is_err());
+    }
+
+    #[test]
+    fn passport_input_ref_rejects_length_overflow() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&u32::MAX.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        payload.extend_from_slice(&0u32.to_le_bytes());
+        payload.extend_from_slice(&20260317u32.to_le_bytes());
+        payload.extend_from_slice(&[0u8; 32]);
+        payload.extend_from_slice(&[0u8; 256]);
+        let encoded = postcard::to_allocvec(payload.as_slice()).unwrap();
+        assert!(postcard::from_bytes::<PassportInputRef<'_>>(&encoded).is_err());
+    }
+
+    #[test]
+    fn passport_input_ref_rejects_trailing_bytes() {
+        let input = PassportInputRef {
+            dg1: b"dg1",
+            encap_content: b"encap",
+            signed_attrs_der: b"attrs",
+            signature: Bytes2048([0x44; 256]),
+            ds_pubkey_der: b"\x30\x82\x01",
+            rsa_challenge_seed: [4u8; 32],
+            today_yyyymmdd: 20260317,
+        };
+        let mut payload = input.pack_payload();
+        payload.push(0xaa);
+        let encoded = postcard::to_allocvec(payload.as_slice()).unwrap();
+        assert!(postcard::from_bytes::<PassportInputRef<'_>>(&encoded).is_err());
     }
 }

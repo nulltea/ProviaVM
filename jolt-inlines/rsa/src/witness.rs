@@ -162,14 +162,7 @@ impl<'de> Deserialize<'de> for Limbs2048 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StepOp {
-    Square,
-    MulBase,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Step2048 {
-    pub op: StepOp,
     pub quotient_residues: [u32; 4],
     pub remainder_residues: [u32; 4],
     pub remainder_limbs: Limbs2048,
@@ -178,7 +171,6 @@ pub struct Step2048 {
 impl Default for Step2048 {
     fn default() -> Self {
         Self {
-            op: StepOp::Square,
             quotient_residues: [0u32; 4],
             remainder_residues: [0u32; 4],
             remainder_limbs: Limbs2048::default(),
@@ -188,8 +180,6 @@ impl Default for Step2048 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Witness2048 {
-    pub modulus: Bytes2048,
-    pub signature: Bytes2048,
     pub steps: [Step2048; 17],
 }
 
@@ -226,17 +216,12 @@ pub fn build_witness_2048(
     let mut current = signature_bn.clone();
 
     for (step_idx, step) in steps.iter_mut().enumerate() {
-        let (lhs, rhs, op) = if step_idx < 16 {
-            (&current, &current, StepOp::Square)
-        } else {
-            (&current, &signature_bn, StepOp::MulBase)
-        };
+        let (lhs, rhs) = if step_idx < 16 { (&current, &current) } else { (&current, &signature_bn) };
         let product = lhs * rhs;
         let quotient = &product / &modulus_bn;
         let remainder = &product % &modulus_bn;
         let remainder_limbs = Limbs2048(biguint_to_limbs_2048(&remainder));
         *step = Step2048 {
-            op,
             quotient_residues: Residues2048::from_bytes(&biguint_to_bytes2048(&quotient)).0,
             remainder_residues: Residues2048::from_limbs(&remainder_limbs.0).0,
             remainder_limbs,
@@ -244,11 +229,7 @@ pub fn build_witness_2048(
         current = remainder;
     }
 
-    Witness2048 {
-        modulus: modulus_bytes,
-        signature: *signature,
-        steps,
-    }
+    Witness2048 { steps }
 }
 
 #[cfg(feature = "host")]
@@ -260,24 +241,11 @@ pub fn validate_witness_2048(
     use num_bigint::BigUint;
 
     let modulus_bytes = Bytes2048::from(limbs_to_bytes_be_2048(modulus));
-    if witness.modulus != modulus_bytes || witness.signature != *signature {
-        return false;
-    }
-
     let modulus_bn = BigUint::from_bytes_be(&modulus_bytes.0);
     let signature_bn = BigUint::from_bytes_be(&signature.0);
     let mut current = signature_bn.clone();
 
     for (step_idx, step) in witness.steps.iter().enumerate() {
-        let expected_op = if step_idx < 16 {
-            StepOp::Square
-        } else {
-            StepOp::MulBase
-        };
-        if step.op != expected_op {
-            return false;
-        }
-
         let rhs = if step_idx < 16 { &current } else { &signature_bn };
         let quotient_bn = (&current * rhs) / &modulus_bn;
         let quotient = biguint_to_bytes2048(&quotient_bn);
@@ -656,11 +624,7 @@ mod tests {
     #[test]
     fn test_rejects_wrong_signature_binding() {
         let modulus = bytes_be_to_limbs_2048(&[0x11u8; 256]);
-        let witness = Witness2048 {
-            modulus: Bytes2048([0x11u8; 256]),
-            signature: Bytes2048([0x22u8; 256]),
-            steps: [Step2048::default(); 17],
-        };
+        let witness = Witness2048 { steps: [Step2048::default(); 17] };
         assert!(!verify_pkcs1v15_sha256_with_witness(
             &witness,
             &modulus,

@@ -82,7 +82,7 @@ fn main() -> eyre::Result<()> {
         JoltRVArch::prover_preprocess(bytecode, memory_layout, memory_init, proof.trace_length);
     let verifier = build_verifier_fib(JoltVerifierPreprocessing::from(&prover_preprocessing));
     info!("verifying proof...");
-    let is_valid = verifier(input, output, program_io.panic, proof);
+    let is_valid = verifier(output, program_io.panic, proof);
 
     if !is_valid {
         return Err(eyre::eyre!("proof verification failed"));
