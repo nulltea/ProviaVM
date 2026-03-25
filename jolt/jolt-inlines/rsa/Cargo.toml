@@ -31,7 +31,7 @@ rand = { workspace = true, features = ["std", "std_rng"] }
 num-bigint-dig = { version = "0.8", default-features = false }
 num-traits = "0.2"
 num-integer = "0.1"
-rsa = { version = "=0.9.6" }
+rsa = { version = "=0.9.10" }
 sha2 = { version = "0.10", features = ["oid"] }
 rand_chacha.workspace = true
 postcard = { version = "1", features = ["alloc"] }
