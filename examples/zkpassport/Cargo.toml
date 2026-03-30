@@ -37,7 +37,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "regis
 
 # Crypto (host-side fixture generation + RSA witness building)
 sha2 = { version = "0.10.8", features = ["oid"] }
-rsa = { version = "=0.9.6" }
+rsa = { version = "=0.9.10" }
 rand = "0.8"
 rand_chacha = "0.3"
 postcard = { version = "1.0.8", default-features = false, features = ["use-std"] }
