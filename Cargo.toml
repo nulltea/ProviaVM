@@ -64,7 +64,7 @@ serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 base64 = "0.22.1"
 divan = "0.1.21"
-rand = "0.8.5"
+rand = "0.9.3"
 subtle = "2.6.1"
 bytemuck = "1.22.0"
 hex-literal = "0.4.1"

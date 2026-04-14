@@ -57,7 +57,7 @@ provia-jolt-sdk-macros = { path = "./macros" }
 # Host-only dependencies
 jolt-core = { path = "../jolt/jolt-core", default-features = false, optional = true }
 tracer = { path = "../jolt/jolt-tracer", package = "jolt-tracer", default-features = false, optional = true }
-rand = { version = "0.8.5", default-features = false, features = ["std_rng"], optional = true }
+rand = { version = "0.9.3", default-features = false, features = ["std_rng"], optional = true }
 provia-worker = { path = "../provia-worker", optional = true }
 rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }
 bincode = { version = "1.3", optional = true }
